@@ -9,7 +9,6 @@
 <link rel="apple-touch-icon" href="https://img.icons8.com/fluent/180/000000/sparkling-particles.png">
 <style>
 :root {
-    /* 元のアプリの大人可愛いラベンダー・パープル世界観を再現 */
     --purple-gradient: linear-gradient(135deg, #a593e0 0%, #e0b3ff 100%);
     --bg-color: #f7f5fa;
     --card-bg: #ffffff;
@@ -35,8 +34,10 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* 【最重要修正】dvh(Dynamic Viewport)を採用してSafari等のバー縮小・拡張に完全追従 */
 html, body { 
-    height: 100%; 
+    height: 100%;
+    height: 100dvh;
     background: var(--bg-color); 
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
     color: var(--text-main); 
@@ -45,21 +46,22 @@ html, body {
     overflow: hidden; 
 }
 
-/* 全体コンテナ */
+/* 全体を完全に画面サイズへフィットさせるFlex構造 */
 .app-container { 
     display: flex; 
     flex-direction: column; 
-    height: 100vh; 
+    height: 100%;
+    height: 100dvh;
     max-width: 500px; 
     margin: 0 auto; 
     background: var(--bg-color); 
     position: relative; 
 }
 
-/* ヘッダー：PWA最上部の Dynamic Island の下へ配置（バグ対策） */
+/* ヘッダー：PWA最上部のセーフエリアを確保 */
 header { 
     background: var(--purple-gradient); 
-    padding-top: calc(env(safe-area-inset-top) + 8px); /* カメラの死角を完全に回避 */
+    padding-top: calc(env(safe-area-inset-top) + 8px); 
     padding-left: 16px;
     padding-right: 16px;
     padding-bottom: 14px;
@@ -68,9 +70,10 @@ header {
     justify-content: space-between; 
     z-index: 10; 
     box-shadow: 0 3px 10px rgba(165,147,224,0.3);
+    flex-shrink: 0;
 }
 header h1 { 
-    font-size: 20px; /* 大画面で見やすいよう拡大 */
+    font-size: 20px; 
     font-weight: 800; 
     margin: 0; 
     color: white;
@@ -99,6 +102,7 @@ header h1 {
     justify-content: center; 
     padding: 12px 16px; 
     background: var(--bg-color); 
+    flex-shrink: 0;
 }
 .day-toggle { 
     display: flex; 
@@ -113,7 +117,7 @@ header h1 {
     border: none; 
     background: none; 
     padding: 8px 0; 
-    font-size: 15px; /* フォント拡大 */
+    font-size: 15px; 
     font-weight: bold; 
     color: var(--text-sub); 
     cursor: pointer; 
@@ -137,12 +141,12 @@ header h1 {
 }
 .day-toggle.tomorrow-active .slider { transform: translateX(100%); }
 
-/* メインコンテンツ表示エリア */
+/* メインコンテンツ表示エリア：上下に挟まれた内側だけをスクロール */
 .content-viewport { 
     flex: 1; 
     overflow-y: auto; 
     -webkit-overflow-scrolling: touch; 
-    padding-bottom: 100px; 
+    padding-bottom: 24px; 
 }
 .tab-content { display: none; padding: 16px; }
 .tab-content.active { display: block; }
@@ -168,7 +172,6 @@ header h1 {
 .chime-indicator { font-size: 13px; }
 .delete-item-btn { background: none; border: none; color: #ff7675; font-size: 16px; cursor: pointer; padding: 4px; }
 
-/* 元のアプリにあった「ネコ助の斜体セリフ枠」を優しく再現 */
 .nekosuke-comment { font-style: italic; font-size: 12px; color: var(--accent); background: var(--accent-light); padding: 4px 10px; border-radius: 8px; display: inline-block; margin-top: 4px; }
 
 /* 献立スタイル */
@@ -195,18 +198,15 @@ header h1 {
 .flag-btn.active.priority { background: #fff3e0; color: #e65100; border-color: #ffe0b2; }
 .flag-btn.active.tomorrow { background: #e1f5fe; color: #0288d1; border-color: #b3e5fc; }
 
-/* フッター：iPhone 15 Pro Max最下部と完全に密着させ隙間を排除（バグ対策） */
+/* 【重要修正】absoluteを廃止。Flexboxの下部固定＋セーフエリアパディングで底に完全密着 */
 footer { 
     display: flex; 
     border-top: 1px solid var(--border-color); 
     background: var(--card-bg); 
     z-index: 10; 
-    height: calc(65px + env(safe-area-inset-bottom)); /* 高さをしっかりと広げて確保 */
-    padding-bottom: env(safe-area-inset-bottom); /* ホームインジケータ領域を完全に包む */
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    padding-bottom: env(safe-area-inset-bottom); /* iPhoneのバーを回避 */
+    min-height: calc(65px + env(safe-area-inset-bottom)); /* 確実な高さを動的確保 */
+    flex-shrink: 0;
     box-shadow: 0 -3px 10px rgba(0,0,0,0.03);
 }
 .nav-btn { 
@@ -220,13 +220,23 @@ footer {
     gap: 4px; 
     color: var(--text-sub); 
     cursor: pointer; 
+    padding-top: 8px;
+    padding-bottom: 4px;
 }
 .nav-btn.active { color: var(--accent); }
-.nav-btn svg { width: 26px; height: 26px; fill: currentColor; } /* アイコンサイズ拡大 */
-.nav-btn span { font-size: 12px; font-weight: bold; } /* 文字サイズを12pxへ拡大 */
+.nav-btn svg { width: 26px; height: 26px; fill: currentColor; } 
+.nav-btn span { font-size: 12px; font-weight: bold; } 
 
-/* 固定FABボタン */
-.fab-container { position: absolute; right: 20px; bottom: calc(85px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; z-index: 20; }
+/* 固定FABボタンの位置もコンテナ基準のボトム位置に自動調整 */
+.fab-container { 
+    position: absolute; 
+    right: 20px; 
+    bottom: calc(85px + env(safe-area-inset-bottom)); 
+    display: flex; 
+    flex-direction: column; 
+    gap: 12px; 
+    z-index: 20; 
+}
 .fab-btn { width: 54px; height: 54px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(142,68,173,0.3); font-size: 24px; }
 .fab-chat { background: var(--purple-gradient); }
 .fab-add { background: #20bf6b; }
@@ -234,7 +244,7 @@ footer {
 /* モーダル */
 .modal-overlay { position: absolute; top:0; left:0; right:0; bottom:0; background: rgba(58,53,69,0.4); display: none; align-items: flex-end; justify-content: center; z-index: 100; opacity: 0; transition: opacity 0.2s ease-out; }
 .modal-overlay.active { display: flex; opacity: 1; }
-.modal-sheet { background: var(--card-bg); border-top-left-radius: 24px; border-top-right-radius: 24px; width: 100%; max-height: 85%; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.modal-sheet { background: var(--card-bg); border-top-left-radius: 24px; border-top-right-radius: 24px; width: 100%; max-height: 85%; display: flex; flex-direction: column; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 .modal-overlay.active .modal-sheet { transform: translateY(0); }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border-color); }
 .modal-header h2 { font-size: 17px; font-weight: bold; margin: 0; }
@@ -340,7 +350,7 @@ footer {
         <div class="modal-body" style="padding:0;">
             <div class="menu-list">
                 <button class="menu-item-btn" onclick="openSetupModal()">⚙️ 初期設定（API・ルーティン）</button>
-                <button class="menu-item-btn" onclick="generateDiary()">存放 振り返り日記をその場で編集・共有</button>
+                <button class="menu-item-btn" onclick="generateDiary()">📝 振り返り日記をその場で編集・共有</button>
                 <button class="menu-item-btn" onclick="openImportModal('timeline')">📥 予定データ手動インポート</button>
                 <button class="menu-item-btn" onclick="openImportModal('meal')">📥 献立データ手動インポート</button>
                 <button class="menu-item-btn danger" onclick="handleClearAllData()">🗑️ 全データをリセット初期化</button>
@@ -357,15 +367,12 @@ footer {
         </div>
         <div class="modal-body">
             <a href="#" class="help-link" onclick="alert('【使い方】\n1. Gemini API Keyを保存するとAIチャットが使えますニャ。\n2. ベースルーティンを登録すると毎日スケジュール枠が自動生成されますニャ🐾')">📖 使い方を見る</a>
-            
             <div class="form-group">
                 <label>Gemini API Key</label>
                 <input type="password" id="setup-api-key" class="input-text" placeholder="AI用のキーを入力">
                 <button class="action-btn-block" style="background:#7f8c8d; margin-top:8px; padding:10px;" onclick="saveApiKeyFromSetup()">APIキーのみ保存</button>
             </div>
-            
             <div class="setup-divider"></div>
-            
             <div class="form-group">
                 <label>ベースルーティン固定スケジュール</label>
                 <div id="setup-routine-container" class="setup-routine-list"></div>
@@ -468,7 +475,6 @@ function checkDailyReset() {
     const lastOpened = localStorage.getItem('last_opened_date');
     if (lastOpened && lastOpened !== todayStr) {
         appData.today.timeline = generateTimelineFromBaseRoutines();
-        // 明日使用フラグからの自動生成
         appData.today.mealSteps = [];
         appData.memo.forEach(m => {
             if (m.useTomorrow) {
@@ -547,7 +553,6 @@ function renderCurrentTabContent() {
 function openModal(modalId) { document.getElementById(modalId).classList.add('active'); }
 function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
 
-/* タイムライン */
 function renderTimeline() {
     const container = document.getElementById('timeline-list-container');
     container.innerHTML = '';
@@ -561,7 +566,6 @@ function renderTimeline() {
     list.forEach((item) => {
         const div = document.createElement('div');
         div.className = `timeline-item ${item.done ? 'done' : ''}`;
-        
         let tagLabel = { routine:'ルーティン', cooking:'調理', task:'追加タスク', calendar:'カレンダー' }[item.tag] || 'ルーティン';
         
         div.innerHTML = `
@@ -655,7 +659,6 @@ function saveTimelineItemChanges(id) {
     }
 }
 
-/* 献立（完全独立インライン編集仕様） */
 function renderMealPlan() {
     const container = document.getElementById('meal-steps-container');
     container.innerHTML = '';
@@ -708,7 +711,6 @@ function recalculateMealTotalTime() {
     document.getElementById('meal-total-time').innerText = total + '分';
 }
 
-/* 食材メモ */
 function renderMemoGrid() {
     const container = document.getElementById('memo-list-container');
     container.innerHTML = '';
@@ -757,7 +759,6 @@ function toggleMemoFlag(idx, flagType) {
 
 function handleDeleteMemo(idx) { appData.memo.splice(idx, 1); saveAppData(); renderMemoGrid(); }
 
-/* ＋FABボタン追加（バグ修正：各追加直後の自動即時フォーカス構造） */
 function handleFabAdd() {
     if (currentTab === 'timeline') {
         const newList = appData[currentDisplayDay].timeline;
@@ -789,7 +790,6 @@ function handleFabAdd() {
     }
 }
 
-/* 初期設定 (バグ修正：追加時に他行を消さず一時退避同期させる仕組み) */
 function tempCollectRoutineInputs() {
     const items = document.querySelectorAll('#setup-routine-container .setup-routine-item');
     let collected = [];
@@ -842,7 +842,7 @@ function renderSetupRoutineList() {
 }
 
 function addEmptyRowToSetupRoutine() {
-    tempCollectRoutineInputs(); // これまでの入力を一時回収（リセットバグを解消）
+    tempCollectRoutineInputs(); 
     appData.baseRoutines.push({ id: 'rot_' + genUniqueId(), time: '07:00', title: '', desc: '', tag: 'routine', chime: false });
     renderSetupRoutineList();
 }
@@ -876,7 +876,6 @@ function saveRoutinesFromSetup() {
     closeModal('modal-setup');
 }
 
-/* Gemini 3.5 Flash チャット */
 function openChatModal() { closeModal('modal-menu'); openModal('modal-chat'); }
 
 async function sendChatMessage() {
@@ -980,7 +979,6 @@ function extractJsonBlock(str) {
     return out.trim();
 }
 
-/* 日記生成（ルーティン以外の予定＋献立をその場で手動編集可能） */
 function generateDiary() {
     const timeline = appData.today.timeline || [];
     const mealSteps = appData.today.mealSteps || [];
@@ -1010,7 +1008,6 @@ async function handleShareDiary() {
     }
 }
 
-/* 手動インポート */
 function openImportModal(targetType) {
     closeModal('modal-menu');
     const title = document.getElementById('import-modal-title');
