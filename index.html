@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Daily Planner AI</title>
+<link rel="apple-touch-icon" href="https://img.icons8.com/fluent/180/000000/sparkling-particles.png">
+<style>
+:root {
+    --bg-color: #f5f4fa;
+    --card-bg: #ffffff;
+    --text-main: #2c3e50;
+    --text-sub: #7f8c8d;
+    --accent: #6c5ce7;
+    --routine: #b5e2b9;
+    --cooking: #fbc531;
+    --task: #dcdde1;
+    --calendar: #ff7675;
+    --border-color: #e8e7f5;
+    --line-bg: #c7cfe8;
+    --line-done: #cbd5e0;
+    --line-green: #85e24a;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body { height: 100%; background: var(--bg-color); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--text-main); margin:0; padding:0; overflow: hidden; }
+
+/* 全体レイアウト */
+.app-container { display: flex; flex-direction: column; height: 100%; max-width: 500px; margin: 0 auto; background: var(--card-bg); box-shadow: 0 0 20px rgba(0,0,0,0.05); position: relative; }
+
+/* ヘッダーエリア */
+header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-color); background: var(--card-bg); z-index: 10; }
+header h1 { font-size: 18px; font-weight: bold; margin: 0; display: flex; align-items: center; gap: 6px; }
+.menu-trigger { background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px; color: var(--text-main); }
+
+/* モード切り替えスイッチ (今日/明日) */
+.day-toggle-container { display: flex; justify-content: center; padding: 8px 16px; background: var(--bg-color); }
+.day-toggle { display: flex; background: #e0def2; padding: 2px; border-radius: 20px; width: 100%; position: relative; }
+.day-toggle button { flex: 1; border: none; background: none; padding: 6px 0; font-size: 13px; font-weight: bold; color: var(--text-sub); cursor: pointer; border-radius: 18px; z-index: 2; transition: color 0.2s; }
+.day-toggle button.active { color: var(--accent); }
+.day-toggle .slider { position: absolute; top: 2px; bottom: 2px; width: calc(50% - 2px); background: var(--card-bg); border-radius: 18px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+.day-toggle.tomorrow-active .slider { transform: translateX(100%); }
+
+/* メインコンテンツ表示エリア */
+.content-viewport { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; position: relative; padding-bottom: 80px; }
+.tab-content { display: none; padding: 16px; }
+.tab-content.active { display: block; }
+
+/* タイムライン表示スタイル */
+.timeline-wrapper { position: relative; padding-left: 24px; margin-top: 8px; }
+.timeline-line { position: absolute; left: 6px; top: 8px; bottom: 8px; width: 3px; background: var(--line-bg); border-radius: 2px; }
+.timeline-item { position: relative; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.timeline-badge { position: absolute; left: -24px; top: 4px; width: 15px; height: 15px; border-radius: 50%; border: 3px solid var(--card-bg); box-shadow: 0 0 0 2px var(--line-bg); background: var(--line-bg); transition: background 0.2s, box-shadow 0.2s; z-index: 2; }
+.timeline-item.done .timeline-badge { background: var(--line-green); box-shadow: 0 0 0 2px var(--line-green); }
+.timeline-time { font-size: 13px; font-weight: bold; color: var(--text-main); width: 42px; pt: 2px; flex-shrink: 0; text-align: right; }
+.timeline-card { flex: 1; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 14px; position: relative; display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: transform 0.1s, opacity 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+.timeline-card:active { transform: scale(0.99); }
+.timeline-item.done .timeline-card { opacity: 0.6; background: #fafafa; }
+.card-header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-title { font-size: 14px; font-weight: bold; outline: none; word-break: break-all; }
+.card-title[contenteditable="true"]:empty:before { content: "タイトルを入力"; color: #ccc; font-weight: normal; }
+.card-desc { font-size: 12px; color: var(--text-sub); outline: none; word-break: break-all; }
+.card-desc[contenteditable="true"]:empty:before { content: "詳細・メモを入力"; color: #ccc; }
+.card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.tag-chip { font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; }
+.tag-chip.routine { background: #e3f9e5; color: #2e7d32; }
+.tag-chip.cooking { background: #fff3cd; color: #856404; }
+.tag-chip.task { background: #f1f2f6; color: #57606f; }
+.tag-chip.calendar { background: #ffe0e0; color: #c0392b; }
+.chime-indicator { font-size: 12px; color: var(--accent); }
+.delete-item-btn { background: none; border: none; color: #ff7675; font-size: 14px; cursor: pointer; display: none; padding: 4px; }
+.timeline-card:hover .delete-item-btn, .timeline-card-editing .delete-item-btn { display: block; }
+
+/* 献立（段取り）表示スタイル */
+.meal-summary-bar { background: #f8f9fa; border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); }
+.meal-summary-bar span { color: var(--accent); font-size: 15px; }
+.meal-step-list { display: flex; flex-direction: column; gap: 10px; }
+.meal-step-item { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+.meal-step-drag-handle { color: #ccc; cursor: grab; font-size: 16px; user-select: none; padding: 4px 0; }
+.meal-step-duration { width: 54px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; }
+.meal-step-duration input { width: 100%; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px; text-align: center; font-size: 13px; font-weight: bold; color: var(--text-main); outline: none; }
+.meal-step-duration input:focus { border-color: var(--accent); }
+.meal-step-duration span { font-size: 11px; color: var(--text-sub); }
+.meal-step-title { flex: 1; font-size: 14px; outline: none; font-weight: 500; word-break: break-all; }
+.meal-step-title[contenteditable="true"]:empty:before { content: "手順・工程を入力"; color: #ccc; }
+.meal-step-delete-btn { background: none; border: none; color: #ff7675; font-size: 14px; cursor: pointer; padding: 4px; }
+
+/* 食材メモ表示スタイル */
+.memo-grid { display: flex; flex-direction: column; gap: 8px; }
+.memo-item { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+.memo-item-name { flex: 1; font-size: 14px; outline: none; font-weight: 500; }
+.memo-item-name[contenteditable="true"]:empty:before { content: "食材・残り物を入力"; color: #ccc; }
+.memo-flags { display: flex; gap: 6px; }
+.flag-btn { border: 1px solid var(--border-color); background: var(--card-bg); font-size: 11px; padding: 4px 8px; border-radius: 14px; cursor: pointer; color: var(--text-sub); font-weight: 500; transition: all 0.15s; }
+.flag-btn.active.priority { background: #ffeaa7; color: #d63031; border-color: #ffeaa7; }
+.flag-btn.active.tomorrow { background: #dff9fb; color: #0984e3; border-color: #dff9fb; }
+.memo-delete-btn { background: none; border: none; color: #ff7675; font-size: 14px; cursor: pointer; padding: 4px; }
+
+/* フッターナビゲーション */
+footer { display: flex; border-top: 1px solid var(--border-color); background: var(--card-bg); z-index: 10; height: 56px; padding-bottom: env(safe-area-inset-bottom); }
+.nav-btn { flex: 1; border: none; background: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-sub); cursor: pointer; transition: color 0.2s; }
+.nav-btn.active { color: var(--accent); }
+.nav-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.nav-btn span { font-size: 10px; font-weight: bold; }
+
+/* 画面右下のフローティングボタン (FAB) */
+.fab-container { position: absolute; right: 16px; bottom: 72px; display: flex; flex-direction: column; gap: 10px; z-index: 20; }
+.fab-btn { width: 48px; height: 48px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.15); transition: transform 0.1s; font-size: 20px; }
+.fab-btn:active { transform: scale(0.95); }
+.fab-chat { background: var(--accent); }
+.fab-add { background: #20bf6b; }
+
+/* 共通モーダル基本構造 */
+.modal-overlay { position: absolute; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.4); display: none; align-items: flex-end; justify-content: center; z-index: 100; opacity: 0; transition: opacity 0.2s ease-out; }
+.modal-overlay.active { display: flex; opacity: 1; }
+.modal-sheet { background: var(--card-bg); border-top-left-radius: 20px; border-top-right-radius: 20px; width: 100%; max-height: 85%; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); padding-bottom: env(safe-area-inset-bottom); }
+.modal-overlay.active .modal-sheet { transform: translateY(0); }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); }
+.modal-header h2 { font-size: 16px; font-weight: bold; margin: 0; }
+.modal-close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-sub); padding: 4px; }
+.modal-body { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+
+/* AIチャット画面特有スタイル */
+.chat-container { display: flex; flex-direction: column; height: 450px; }
+.chat-box { flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; background: #fcfbfe; display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch; }
+.chat-msg { max-width: 85%; padding: 10px 14px; font-size: 13px; line-height: 1.4; border-radius: 14px; word-break: break-all; white-space: pre-wrap; }
+.chat-msg.ai { background: #e8e7f5; color: var(--text-main); align-self: flex-start; border-top-left-radius: 2px; }
+.chat-msg.user { background: var(--accent); color: white; align-self: flex-end; border-top-right-radius: 2px; }
+.chat-input-row { display: flex; gap: 8px; margin-top: 12px; }
+.chat-input-row textarea { flex: 1; border: 1px solid var(--border-color); border-radius: 20px; padding: 10px 16px; font-size: 13px; outline: none; resize: none; height: 38px; line-height: 18px; font-family: inherit; }
+.chat-input-row textarea:focus { border-color: var(--accent); }
+.chat-send-btn { background: var(--accent); color: white; border: none; padding: 0 16px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; flex-shrink: 0; }
+.chat-send-btn:disabled { background: var(--text-sub); opacity: 0.6; }
+
+/* フォーム・設定画面コンポーネント */
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 12px; font-weight: bold; color: var(--text-sub); margin-bottom: 6px; }
+.input-text { width: 100%; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; font-size: 13px; outline: none; font-family: inherit; }
+.input-text:focus { border-color: var(--accent); }
+.help-link { font-size: 12px; color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 2px; margin-bottom: 12px; font-weight: bold; }
+.setup-divider { height: 1px; background: var(--border-color); margin: 16px 0; }
+.action-btn-block { width: 100%; background: var(--accent); color: white; border: none; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 8px; }
+.action-btn-secondary { width: 100%; background: none; border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 8px; }
+
+/* メニュー一覧モーダル */
+.menu-list { display: flex; flex-direction: column; }
+.menu-item-btn { border: none; background: none; padding: 14px 16px; text-align: left; font-size: 14px; font-weight: 500; cursor: pointer; border-bottom: 1px solid #f8f9fa; display: flex; align-items: center; gap: 10px; color: var(--text-main); }
+.menu-item-btn:active { background: #f8f9fa; }
+.menu-item-btn.danger { color: #ff7675; }
+
+/* ルーティン設定用エディタ */
+.setup-routine-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.setup-routine-item { border: 1px solid var(--border-color); border-radius: 10px; padding: 10px; background: #fdfdfd; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.setup-routine-row { display: flex; gap: 6px; align-items: center; }
+.setup-routine-item .del-btn { position: absolute; right: 8px; top: 8px; background: none; border: none; color: #ff7675; font-size: 14px; cursor: pointer; }
+
+/* 日記生成エリア */
+.diary-textarea { width: 100%; height: 160px; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; outline: none; resize: none; font-family: inherit; margin-bottom: 12px; background: #fafafa; }
+.diary-textarea:focus { border-color: var(--accent); background: white; }
+
+/* タイムラインアイテム編集パネル */
+.edit-panel-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.edit-panel-row .field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.edit-panel-row label { font-size: 11px; font-weight: bold; color: var(--text-sub); }
+.toggle-switch-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+    <header>
+        <button class="menu-trigger" onclick="openModal('modal-menu')">☰</button>
+        <h1 id="app-title">📅 タイムライン</h1>
+        <div style="width:28px;"></div> </header>
+
+    <div class="day-toggle-container">
+        <div class="day-toggle" id="day-toggle-bar">
+            <div class="slider"></div>
+            <button id="btn-toggle-today" class="active" onclick="switchDayMode('today')">今日</button>
+            <button id="btn-toggle-tomorrow" onclick="switchDayMode('tomorrow')">明日</button>
+        </div>
+    </div>
+
+    <div class="content-viewport">
+        <div id="tab-timeline" class="tab-content active">
+            <div class="timeline-wrapper">
+                <div class="timeline-line"></div>
+                <div id="timeline-list-container"></div>
+            </div>
+        </div>
+
+        <div id="tab-meal" class="tab-content">
+            <div class="meal-summary-bar">
+                ⏱️ 合計所要時間の目安: <span id="meal-total-time">0分</span>
+            </div>
+            <div id="meal-steps-container" class="meal-step-list"></div>
+        </div>
+
+        <div id="tab-memo" class="tab-content">
+            <div id="memo-list-container" class="memo-grid"></div>
+        </div>
+    </div>
+
+    <div class="fab-container">
+        <button class="fab-btn fab-chat" onclick="openChatModal()">💬</button>
+        <button class="fab-btn fab-add" id="fab-add-item" onclick="handleFabAdd()">＋</button>
+    </div>
+
+    <footer>
+        <button id="nav-btn-timeline" class="nav-btn active" onclick="switchTab('timeline')">
+            <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
+            <span>予定</span>
+        </button>
+        <button id="nav-btn-meal" class="nav-btn" onclick="switchTab('meal')">
+            <svg viewBox="0 0 24 24"><path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"/></svg>
+            <span>献立</span>
+        </button>
+        <button id="nav-btn-memo" class="nav-btn" onclick="switchTab('memo')">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            <span>食材メモ</span>
+        </button>
+    </footer>
+</div>
+
+<div id="modal-menu" class="modal-overlay" onclick="closeModal('modal-menu')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2>メニュー</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-menu')">×</button>
+        </div>
+        <div class="modal-body" style="padding:0;">
+            <div class="menu-list">
+                <button class="menu-item-btn" onclick="openSetupModal()">⚙️ 初期設定（API・ルーティン）</button>
+                <button class="menu-item-btn" onclick="generateDiary()">📝 今日の振り返り日記を共有</button>
+                <button class="menu-item-btn" onclick="openImportModal('timeline')">📥 予定データ手動インポート</button>
+                <button class="menu-item-btn" onclick="openImportModal('meal')">📥 献立データ手動インポート</button>
+                <button class="menu-item-btn danger" onclick="handleClearAllData()">🗑️ 全データをクリア・初期化</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modal-setup" class="modal-overlay" onclick="closeModal('modal-setup')">
+    <div class="modal-sheet" style="max-height:90%;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2>⚙️ 初期設定</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-setup')">×</button>
+        </div>
+        <div class="modal-body">
+            <a href="#" class="help-link" onclick="alert('【使い方マニュアル】\n1. Gemini API Keyを入力して保存するとAIチャットが使えます。\n2. ベースルーティンを登録すると毎日自動展開されます。\n3. APIキーは端末内に安全に保存されます。')">📖 使い方を見る</a>
+            
+            <div class="form-group">
+                <label>Gemini API Key</label>
+                <input type="password" id="setup-api-key" class="input-text" placeholder="AIチャット用のAPIキーを入力">
+                <button class="action-btn-block" style="background:#57606f; margin-top:8px; padding:8px;" onclick="saveApiKeyFromSetup()">APIキーのみ保存</button>
+            </div>
+            
+            <div class="setup-divider"></div>
+            
+            <div class="form-group">
+                <label>ベースルーティン固定スケジュール</label>
+                <div id="setup-routine-container" class="setup-routine-list"></div>
+                <button class="action-btn-secondary" style="border-style:dashed;" onclick="addEmptyRowToSetupRoutine()">＋ ルーティン項目を追加</button>
+                <button class="action-btn-block" onclick="saveRoutinesFromSetup()">ベースルーティンを保存</button>
+            </div>
+            
+            <button class="action-btn-secondary" onclick="closeModal('modal-setup')">後で設定する</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal-chat" class="modal-overlay" onclick="closeModal('modal-chat')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2>🐱 ネコ助相談チャット</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-chat')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="chat-container">
+                <div id="chat-box-area" class="chat-box">
+                    <div class="chat-msg ai">こんにちはニャ！今日の予定や献立、冷蔵庫の残り物アレンジなど何でも相談してニャ！🐾</div>
+                </div>
+                <div class="chat-input-row">
+                    <textarea id="chat-input" placeholder="ネコ助にメッセージを送信..."></textarea>
+                    <button id="btn-chat-send" class="chat-send-btn" onclick="sendChatMessage()">送信</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modal-diary" class="modal-overlay" onclick="closeModal('modal-diary')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2>📝 今日の振り返り日記</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-diary')">×</button>
+        </div>
+        <div class="modal-body">
+            <textarea id="diary-output-text" class="diary-textarea"></textarea>
+            <button class="action-btn-block" onclick="handleShareDiary()">外部に共有する (Share)</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal-edit-item" class="modal-overlay" onclick="closeModal('modal-edit-item')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2>✏️ 予定の編集</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-edit-item')">×</button>
+        </div>
+        <div class="modal-body" id="modal-edit-item-body">
+            </div>
+    </div>
+</div>
+
+<div id="modal-import" class="modal-overlay" onclick="closeModal('modal-import')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 id="import-modal-title">📥 データ手動インポート</h2>
+            <button class="modal-close-btn" onclick="closeModal('modal-import')">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:12px; color:var(--text-sub); margin-top:0;">AI応答のコードブロック(===PLAN=== または ===MEAL=== 以下の部分)をそのまま以下に貼り付けて解析ボタンを押してください。</p>
+            <textarea id="import-pasted-text" class="diary-textarea" placeholder="ここにテキストを貼り付け" style="height:140px; background:white;"></textarea>
+            <button id="btn-execute-import" class="action-btn-block">インポートを解析・実行</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ============ データモデル＆状態管理 ============ */
+let currentTab = 'timeline';  // 'timeline' | 'meal' | 'memo'
+let currentDisplayDay = 'today'; // 'today' | 'tomorrow'
+
+// アプリケーション全体データ構造
+let appData = {
+    apiKey: '',
+    baseRoutines: [], // {id, time, title, desc, tag, chime}
+    today: {
+        timeline: [], // {id, time, title, desc, tag, chime, done}
+        mealSteps: [] // {duration, title}
+    },
+    tomorrow: {
+        timeline: [],
+        mealSteps: []
+    },
+    memo: [] // {id, name, priority, useTomorrow}
+};
+
+// リクエスト制限のタイムスタンプ管理用配列
+let requestTimestamps = [];
+
+// ユニークID生成ユーティリティ
+function genUniqueId() { return 'id_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now(); }
+
+/* ============ ストレージ同期・初期化ロジック ============ */
+function loadAppData() {
+    const local = localStorage.getItem('daily_planner_ai_data');
+    if (local) {
+        try {
+            const parsed = JSON.parse(local);
+            // 必要なデータ構造の欠損をフォールバック補正
+            appData = Object.assign({
+                apiKey: '', baseRoutines: [],
+                today: { timeline: [], mealSteps: [] },
+                tomorrow: { timeline: [], mealSteps: [] },
+                memo: []
+            }, parsed);
+        } catch (e) {
+            console.error('データ読み込みに失敗しました。新規作成します。', e);
+        }
+    }
+}
+
+function saveAppData() {
+    localStorage.setItem('daily_planner_ai_data', JSON.stringify(appData));
+}
+
+function loadRequestTimestamps() {
+    const saved = localStorage.getItem('ai_request_timestamps');
+    return saved ? JSON.parse(saved) : [];
+}
+
+function saveRequestTimestamps(ts) {
+    localStorage.setItem('ai_request_timestamps', JSON.stringify(ts));
+}
+
+// 毎朝の初回起動時のリセット判定用
+function checkDailyReset() {
+    const todayStr = new Date().toLocaleDateString();
+    const lastOpened = localStorage.getItem('last_opened_date');
+    if (lastOpened && lastOpened !== todayStr) {
+        // 日付変更時のローテーション処理
+        // 1. 今日のデータをクリアし、ベースルーティンから作り直す
+        appData.today.timeline = generateTimelineFromBaseRoutines();
+        
+        // 2. 「明日使用予定」フラグのある食材メモを今日の献立ステップに自動変換・追加
+        generateMealStepsFromTomorrowMemo();
+        
+        // 3. 明日の下書きがあればそれを今日に格上げ、なければ空に
+        if (appData.tomorrow.timeline && appData.tomorrow.timeline.length > 0) {
+            appData.today.timeline = JSON.parse(JSON.stringify(appData.tomorrow.timeline));
+        }
+        if (appData.tomorrow.mealSteps && appData.tomorrow.mealSteps.length > 0) {
+            appData.today.mealSteps = JSON.parse(JSON.stringify(appData.tomorrow.mealSteps));
+        }
+        
+        // 明日のデータを真っさらに初期化
+        appData.tomorrow.timeline = generateTimelineFromBaseRoutines();
+        appData.tomorrow.mealSteps = [];
+        
+        saveAppData();
+    }
+    localStorage.setItem('last_opened_date', todayStr);
+}
+
+function generateTimelineFromBaseRoutines() {
+    // タイムラインソート用にベースルーティンを時刻順に並べてコピー生成
+    let copied = JSON.parse(JSON.stringify(appData.baseRoutines));
+    copied.forEach(item => { item.done = false; });
+    return sortTimelineItems(copied);
+}
+
+function sortTimelineItems(list) {
+    return list.sort((a, b) => {
+        if (!a.time) return 1;
+        if (!b.time) return -1;
+        return a.time.localeCompare(b.time);
+    });
+}
+
+function generateMealStepsFromTomorrowMemo() {
+    appData.today.mealSteps = [];
+    appData.memo.forEach(m => {
+        if (m.useTomorrow) {
+            appData.today.mealSteps.push({
+                duration: 10,
+                title: `【食材消費】${m.name}の下ごしらえ・調理`
+            });
+            // 食材メモ側の明日使用予定フラグを下ろす
+            m.useTomorrow = false;
+        }
+    });
+}
+
+/* ============ アプリの初期起動シーケンス ============ */
+function initApp() {
+    loadAppData();
+    checkDailyReset();
+    
+    // 初回起動時（APIキーもルーティンもない状態）は設定画面へ強制誘導
+    if (!appData.apiKey && appData.baseRoutines.length === 0) {
+        openSetupModal();
+    }
+    
+    // データが1件もない場合は仮のベースラインを再設定
+    const currentDayData = appData[currentDisplayDay];
+    if (currentDayData.timeline.length === 0 && appData.baseRoutines.length > 0) {
+        currentDayData.timeline = generateTimelineFromBaseRoutines();
+        saveAppData();
+    }
+    
+    renderCurrentTabContent();
+}
+
+/* ============ タブ＆表示モード切り替えUI ============ */
+function switchTab(tabName) {
+    currentTab = tabName;
+    document.querySelectorAll('footer .nav-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`nav-btn-${tabName}`).classList.add('active');
+    
+    document.querySelectorAll('.tab-content').forEach(cont => cont.classList.remove('active'));
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // ヘッダータイトルをタブに応じて動的に変更
+    const titleEl = document.getElementById('app-title');
+    const fabAdd = document.getElementById('fab-add-item');
+    
+    if (tabName === 'timeline') {
+        titleEl.innerText = '📅 タイムライン';
+        fabAdd.style.display = 'flex';
+    } else if (tabName === 'meal') {
+        titleEl.innerText = '🍳 献立の段取り';
+        fabAdd.style.display = 'flex';
+    } else {
+        titleEl.innerText = '🥩 残り物・食材メモ';
+        fabAdd.style.display = 'flex'; // 食材メモでも行追加できるように表示
+    }
+    
+    renderCurrentTabContent();
+}
+
+function switchDayMode(dayMode) {
+    currentDisplayDay = dayMode;
+    const bar = document.getElementById('day-toggle-bar');
+    const btnToday = document.getElementById('btn-toggle-today');
+    const btnTomorrow = document.getElementById('btn-toggle-tomorrow');
+    
+    if (dayMode === 'today') {
+        bar.classList.remove('tomorrow-active');
+        btnToday.classList.add('active');
+        btnTomorrow.classList.remove('active');
+    } else {
+        bar.classList.add('tomorrow-active');
+        btnToday.classList.remove('active');
+        btnTomorrow.classList.add('active');
+    }
+    
+    renderCurrentTabContent();
+}
+
+function renderCurrentTabContent() {
+    if (currentTab === 'timeline') {
+        renderTimeline();
+    } else if (currentTab === 'meal') {
+        renderMealPlan();
+    } else if (currentTab === 'memo') {
+        renderMemoGrid();
+    }
+}
+
+/* ============ モーダル基本操作群 ============ */
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('active');
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('active');
+}
+
+/* ============ タブ1: タイムラインレンダリング＆編集処理 ============ */
+function renderTimeline() {
+    const container = document.getElementById('timeline-list-container');
+    container.innerHTML = '';
+    
+    const list = appData[currentDisplayDay].timeline || [];
+    
+    if (list.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:var(--text-sub); font-size:13px; padding:32px 0;">予定が登録されていませんニャ🐾</div>`;
+        return;
+    }
+    
+    list.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = `timeline-item ${item.done ? 'done' : ''}`;
+        
+        let tagLabel = '';
+        let tagClass = item.tag || 'routine';
+        if (tagClass === 'routine') tagLabel = 'ルーティン';
+        else if (tagClass === 'cooking') tagLabel = '調理・片付';
+        else if (tagClass === 'task') tagLabel = '追加タスク';
+        else if (tagClass === 'calendar') tagLabel = '外部連携';
+        
+        div.innerHTML = `
+            <div class="timeline-badge" onclick="toggleTimelineItemDone('${item.id}', event)"></div>
+            <div class="timeline-time">${item.time || '--:--'}</div>
+            <div class="timeline-card" onclick="openEditItemPanel('${item.id}')">
+                <div class="card-header-row">
+                    <span class="card-title">${item.title || '(無題の予定)'}</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        ${item.chime ? '<span class="chime-indicator">🔔</span>' : ''}
+                        <button class="delete-item-btn" onclick="handleDeleteTimelineItem('${item.id}', event)">✕</button>
+                    </div>
+                </div>
+                ${item.desc ? `<div class="card-desc">${item.desc}</div>` : ''}
+                <div class="card-tags">
+                    <span class="tag-chip ${tagClass}">${tagLabel}</span>
+                </div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function toggleTimelineItemDone(id, event) {
+    event.stopPropagation();
+    const list = appData[currentDisplayDay].timeline;
+    const item = list.find(i => i.id === id);
+    if (item) {
+        item.done = !item.done;
+        saveAppData();
+        renderTimeline();
+    }
+}
+
+function handleDeleteTimelineItem(id, event) {
+    event.stopPropagation();
+    let list = appData[currentDisplayDay].timeline;
+    appData[currentDisplayDay].timeline = list.filter(i => i.id !== id);
+    saveAppData();
+    renderTimeline();
+}
+
+function openEditItemPanel(id) {
+    const list = appData[currentDisplayDay].timeline;
+    const item = list.find(i => i.id === id);
+    if (!item) return;
+    
+    const body = document.getElementById('modal-edit-item-body');
+    body.innerHTML = `
+        <div class="edit-panel-row">
+            <div class="field" style="flex:0 0 90px;">
+                <label>時刻</label>
+                <input type="time" id="edit-item-time" class="input-text" value="${item.time || ''}">
+            </div>
+            <div class="field">
+                <label>タイトル</label>
+                <input type="text" id="edit-item-title" class="input-text" value="${item.title || ''}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>詳細・メモ</label>
+            <input type="text" id="edit-item-desc" class="input-text" value="${item.desc || ''}">
+        </div>
+        <div class="edit-panel-row">
+            <div class="field">
+                <label>区分タグ</label>
+                <select id="edit-item-tag" class="input-text" style="padding:8px;">
+                    <option value="routine" ${item.tag==='routine'?'selected':''}>ルーティン</option>
+                    <option value="cooking" ${item.tag==='cooking'?'selected':''}>調理・片付け</option>
+                    <option value="task" ${item.tag==='task'?'selected':''}>追加タスク</option>
+                    <option value="calendar" ${item.tag==='calendar'?'selected':''}>外部カレンダー連携</option>
+                </select>
+            </div>
+            <div class="field" style="justify-content: center; align-items: flex-start; padding-left:10px;">
+                <label class="toggle-switch-label">
+                    <input type="checkbox" id="edit-item-chime" ${item.chime?'checked':''}> 時報チャイム (🔔)
+                </label>
+            </div>
+        </div>
+        <button class="action-btn-block" onclick="saveTimelineItemChanges('${item.id}')">変更を保存</button>
+    `;
+    openModal('modal-edit-item');
+}
+
+function saveTimelineItemChanges(id) {
+    const list = appData[currentDisplayDay].timeline;
+    const item = list.find(i => i.id === id);
+    if (item) {
+        item.time = document.getElementById('edit-item-time').value;
+        item.title = document.getElementById('edit-item-title').value.trim();
+        item.desc = document.getElementById('edit-item-desc').value.trim();
+        item.tag = document.getElementById('edit-item-tag').value;
+        item.chime = document.getElementById('edit-item-chime').checked;
+        
+        appData[currentDisplayDay].timeline = sortTimelineItems(list);
+        saveAppData();
+        closeModal('modal-edit-item');
+        renderTimeline();
+    }
+}
+
+/* ============ タブ2: 献立段取り（完全独立インライン編集仕様） ============ */
+function renderMealPlan() {
+    const container = document.getElementById('meal-steps-container');
+    container.innerHTML = '';
+    
+    const steps = appData[currentDisplayDay].mealSteps || [];
+    
+    if (steps.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:var(--text-sub); font-size:13px; padding:32px 0;">献立の段取り手順がありませんニャ🍳<br>AIチャットや「＋」ボタンで追加してニャ。</div>`;
+        recalculateMealTotalTime();
+        return;
+    }
+    
+    steps.forEach((step, idx) => {
+        const div = document.createElement('div');
+        div.className = 'meal-step-item';
+        div.setAttribute('data-idx', idx);
+        div.innerHTML = `
+            <div class="meal-step-drag-handle">☰</div>
+            <div class="meal-step-duration">
+                <input type="number" value="${step.duration || 0}" min="0" onchange="handleMealDurationChange(${idx}, this)" oninput="recalculateMealTotalTime()">
+                <span>分</span>
+            </div>
+            <div class="meal-step-title" contenteditable="true" onblur="handleMealTitleBlur(${idx}, this)">${step.title || ''}</div>
+            <button class="meal-step-delete-btn" onclick="handleDeleteMealStep(${idx})">✕</button>
+        `;
+        container.appendChild(div);
+    });
+    
+    recalculateMealTotalTime();
+}
+
+function handleMealDurationChange(idx, inputEl) {
+    const val = parseInt(inputEl.value, 10);
+    appData[currentDisplayDay].mealSteps[idx].duration = isNaN(val) ? 0 : val;
+    saveAppData();
+}
+
+function handleMealTitleBlur(idx, cellEl) {
+    appData[currentDisplayDay].mealSteps[idx].title = cellEl.innerText.trim();
+    saveAppData();
+}
+
+function handleDeleteMealStep(idx) {
+    appData[currentDisplayDay].mealSteps.splice(idx, 1);
+    saveAppData();
+    renderMealPlan();
+}
+
+function recalculateMealTotalTime() {
+    const steps = appData[currentDisplayDay].mealSteps || [];
+    let total = 0;
+    steps.forEach(s => {
+        const d = parseInt(s.duration, 10);
+        if (!isNaN(d)) total += d;
+    });
+    const label = document.getElementById('meal-total-time');
+    if (label) label.innerText = total + '分';
+}
+
+/* ============ タブ3: 残り物・食材メモ（インライン編集＆トグル仕様） ============ */
+function renderMemoGrid() {
+    const container = document.getElementById('memo-list-container');
+    container.innerHTML = '';
+    
+    const memoList = appData.memo || [];
+    
+    if (memoList.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:var(--text-sub); font-size:13px; padding:32px 0;">食材メモは空っぽですニャ🥩</div>`;
+        return;
+    }
+    
+    memoList.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'memo-item';
+        div.innerHTML = `
+            <div class="memo-item-name" contenteditable="true" onblur="handleMemoNameBlur(${idx}, this)">${item.name || ''}</div>
+            <div class="memo-flags">
+                <button class="flag-btn priority ${item.priority?'active':''}" onclick="toggleMemoFlag(${idx}, 'priority')">⚠️優先消費</button>
+                <button class="flag-btn tomorrow ${item.useTomorrow?'active':''}" onclick="toggleMemoFlag(${idx}, 'tomorrow')">🍳明日使用</button>
+            </div>
+            <button class="memo-delete-btn" onclick="handleDeleteMemo(${idx})">✕</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function handleMemoNameBlur(idx, cellEl) {
+    appData.memo[idx].name = cellEl.innerText.trim();
+    saveAppData();
+}
+
+// 食材の重複チェックガード付きフラグトグル
+function toggleMemoFlag(idx, flagType) {
+    const target = appData.memo[idx];
+    if (flagType === 'priority') {
+        target.priority = !target.priority;
+    } else if (flagType === 'tomorrow') {
+        const futureVal = !target.useTomorrow;
+        
+        if (futureVal && target.name) {
+            // 明日使用フラグをONにしようとした場合、すでに明日用の同一食材がないかチェック
+            const exists = appData.memo.some((m, i) => i !== idx && m.name === target.name && m.useTomorrow);
+            if (exists) {
+                alert(`⚠️ 「${target.name}」はすでに明日使用するフラグが設定されていますニャ（重複防止）`);
+                return;
+            }
+        }
+        target.useTomorrow = futureVal;
+    }
+    saveAppData();
+    renderMemoGrid();
+}
+
+function handleDeleteMemo(idx) {
+    appData.memo.splice(idx, 1);
+    saveAppData();
+    renderMemoGrid();
+}
+
+/* ============ 各タブ共通の「＋」FABボタンの動的追加ロジック ============ */
+function handleFabAdd() {
+    if (currentTab === 'timeline') {
+        const newList = appData[currentDisplayDay].timeline;
+        const newId = genUniqueId();
+        newList.push({
+            id: newId,
+            time: '12:00',
+            title: '',
+            desc: '',
+            tag: 'task',
+            chime: false,
+            done: false
+        });
+        appData[currentDisplayDay].timeline = sortTimelineItems(newList);
+        saveAppData();
+        renderTimeline();
+        
+        // 追加直後にインライン編集（モーダルを開いて新規フォーカスさせる）
+        openEditItemPanel(newId);
+        setTimeout(() => {
+            const titleInput = document.getElementById('edit-item-title');
+            if (titleInput) titleInput.focus();
+        }, 150);
+        
+    } else if (currentTab === 'meal') {
+        if (!appData[currentDisplayDay].mealSteps) appData[currentDisplayDay].mealSteps = [];
+        appData[currentDisplayDay].mealSteps.push({ duration: 5, title: '' });
+        saveAppData();
+        renderMealPlan();
+        
+        // 追加行の入力セルに即時自動フォーカス
+        setTimeout(() => {
+            const cells = document.querySelectorAll('#meal-steps-container .meal-step-title');
+            if (cells.length > 0) {
+                const targetCell = cells[cells.length - 1];
+                targetCell.focus();
+            }
+        }, 50);
+        
+    } else if (currentTab === 'memo') {
+        if (!appData.memo) appData.memo = [];
+        appData.memo.push({ id: genUniqueId(), name: '', priority: false, useTomorrow: false });
+        saveAppData();
+        renderMemoGrid();
+        
+        // 食材名セルに即時自動フォーカス
+        setTimeout(() => {
+            const cells = document.querySelectorAll('#memo-list-container .memo-item-name');
+            if (cells.length > 0) {
+                cells[cells.length - 1].focus();
+            }
+        }, 50);
+    }
+}
+
+/* ============ 初期設定モーダル詳細ロジック（API/ルーティン分離保存） ============ */
+function openSetupModal() {
+    closeModal('modal-menu');
+    document.getElementById('setup-api-key').value = appData.apiKey || '';
+    renderSetupRoutineList();
+    openModal('modal-setup');
+}
+
+function renderSetupRoutineList() {
+    const container = document.getElementById('setup-routine-container');
+    container.innerHTML = '';
+    const list = appData.baseRoutines || [];
+    
+    list.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'setup-routine-item';
+        div.innerHTML = `
+            <button class="del-btn" onclick="deleteRowFromSetupRoutine(${idx})">✕</button>
+            <div class="setup-routine-row">
+                <input type="time" class="input-text r-time" value="${item.time || ''}" style="width:90px; padding:6px;">
+                <input type="text" class="input-text r-title" value="${item.title || ''}" placeholder="ルーティン名" style="flex:1; padding:6px;">
+            </div>
+            <div class="setup-routine-row">
+                <input type="text" class="input-text r-desc" value="${item.desc || ''}" placeholder="詳細・メモ" style="flex:1; padding:6px; font-size:11px;">
+                <select class="input-text r-tag" style="width:100px; padding:5px; font-size:11px;">
+                    <option value="routine" ${item.tag==='routine'?'selected':''}>固定枠</option>
+                    <option value="cooking" ${item.tag==='cooking'?'selected':''}>調理調理</option>
+                </select>
+                <label style="font-size:11px; white-space:nowrap; display:flex; align-items:center; gap:2px;">
+                    <input type="checkbox" class="r-chime" ${item.chime?'checked':''}>🔔
+                </label>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function addEmptyRowToSetupRoutine() {
+    if (!appData.baseRoutines) appData.baseRoutines = [];
+    appData.baseRoutines.push({ id: 'rot_' + genUniqueId(), time: '07:00', title: '', desc: '', tag: 'routine', chime: false });
+    renderSetupRoutineList();
+}
+
+function deleteRowFromSetupRoutine(idx) {
+    appData.baseRoutines.splice(idx, 1);
+    renderSetupRoutineList();
+}
+
+// 独立保存ロジック① APIキー
+function saveApiKeyFromSetup() {
+    const keyVal = document.getElementById('setup-api-key').value.trim();
+    appData.apiKey = keyVal;
+    saveAppData();
+    alert('🔑 APIキーを個別保存しましたニャ！');
+}
+
+// 独立保存ロジック② ベースルーティン (ID照合、確認ダイアログ無しで即座に今日・明日に反映)
+function saveRoutinesFromSetup() {
+    const items = document.querySelectorAll('#setup-routine-container .setup-routine-item');
+    let newRoutines = [];
+    
+    items.forEach((el, idx) => {
+        // 既存のIDがあれば引き継ぎ、なければ新規発行
+        const existingId = appData.baseRoutines[idx] ? appData.baseRoutines[idx].id : 'rot_' + genUniqueId();
+        newRoutines.push({
+            id: existingId,
+            time: el.querySelector('.r-time').value,
+            title: el.querySelector('.r-title').value.trim(),
+            desc: el.querySelector('.r-desc').value.trim(),
+            tag: el.querySelector('.r-tag').value,
+            chime: el.querySelector('.r-chime').checked
+        });
+    });
+    
+    // 1. ベースルーティンを保存
+    appData.baseRoutines = newRoutines;
+    
+    // 2. ID照合を用いて、今日・明日の既存タイムライン項目を最新の固定ルーティン内容に即時置換
+    ['today', 'tomorrow'].forEach(dayKey => {
+        let currentTimeline = appData[dayKey].timeline || [];
+        
+        // 削除されたルーティン項目や更新されたルーティン項目を反映
+        // 新しいルーティンをベースに再構築し、手動で追加されたタスク(tag==='task' や 'calendar')は残す
+        let manualTasks = currentTimeline.filter(item => item.tag === 'task' || item.tag === 'calendar');
+        
+        let dynamicRoutines = newRoutines.map(r => {
+            // 今日のタイムライン側で既に完了(done)になっていないかチェック
+            const oldItem = currentTimeline.find(item => item.id === r.id);
+            return {
+                id: r.id,
+                time: r.time,
+                title: r.title,
+                desc: r.desc,
+                tag: r.tag,
+                chime: r.chime,
+                done: oldItem ? oldItem.done : false
+            };
+        });
+        
+        appData[dayKey].timeline = sortTimelineItems([...manualTasks, ...dynamicRoutines]);
+    });
+    
+    saveAppData();
+    alert('⚙️ ベースルーティンを保存し、タイムラインに即時同期しましたニャ！');
+    renderCurrentTabContent();
+    closeModal('modal-setup');
+}
+
+/* ============ AIチャット機能 (Gemini 3.5 Flash 最新API直接通信仕様) ============ */
+function openChatModal() {
+    closeModal('modal-menu');
+    openModal('modal-chat');
+    // チャットを開いた際にスクロールを一番下にする
+    setTimeout(() => {
+        const box = document.getElementById('chat-box-area');
+        box.scrollTop = box.scrollHeight;
+    }, 100);
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const userMsg = input.value.trim();
+    if (!userMsg) return;
+
+    if (!appData.apiKey) {
+        alert('⚠️ 最初に「⚙️ 設定」からGemini APIキーを設定してニャ！');
+        openSetupModal();
+        return;
+    }
+
+    // 1分間に5回以上の超高頻度リクエストに対する簡易フロントガード
+    const now = Date.now();
+    requestTimestamps = requestTimestamps.filter(ts => now - ts < 60000);
+    if (requestTimestamps.length >= 5) {
+        alert('⚠️ 短時間にたくさん喋りすぎニャ！少し時間を置いてから送ってニャ🐾');
+        return;
+    }
+    requestTimestamps.push(now);
+    saveRequestTimestamps(requestTimestamps);
+
+    const box = document.getElementById('chat-box-area');
+    box.innerHTML += `<div class="chat-msg user">${userMsg}</div>`;
+    input.value = '';
+    box.scrollTop = box.scrollHeight;
+
+    // ボタンの状態制御
+    const sendBtn = document.getElementById('btn-chat-send');
+    sendBtn.disabled = true;
+    sendBtn.innerText = '考慮中..';
+
+    // コンテキストとしての食材メモ情報をプロンプトに動的バインド
+    let memoContext = appData.memo.map(m => `・${m.name} (優先消費:${m.priority?'はい':'いいえ'}, 明日使用:${m.useTomorrow?'はい':'いいえ'})`).join('\n');
+    
+    // システム命令定義
+    const systemPrompt = `
+あなたは優秀な家事・ライフスタイルアシスタント猫の「ネコ助」です。
+ユーザー（みほさん、またはその友人）のタイムラインスケジュール管理や献立段取り、食材の消費相談をサポートします。
+語尾に「ニャ」「ニャ〜」をつけて可愛らしく、親しみやすいトーンで応答してください。
+
+【現在の冷蔵庫・食材メモ情報】
+${memoContext || '（現在食材メモは空っぽです）'}
+
+ユーザーのメッセージに対して、予定のアドバイスやおすすめの献立段取りを提示してください。
+もしユーザーの予定や献立データに変更・新規提案を加える場合は、会話文の通常の応答のあとに、以下の指示に従って指定のフォーマットブロックを「必ず文章の末尾」に付与してください。
+
+■ 予定（タイムライン）を提案・変更する場合:
+文章の最後に文字通り「===PLAN===」と記述し、その直後に以下のJSONフォーマットを \`\`\`json ... \`\`\` で出力してください。
+{
+  "events": [
+    { "time": "HH:MM", "title": "予定のタイトル", "desc": "補足説明があれば", "tag": "routineまたはcookingまたはtask", "chime": false }
+  ]
+}
+
+■ 献立段取りを提案・変更する場合:
+文章の最後に文字通り「===MEAL===」と記述し、その直後に以下のJSONフォーマットを \`\`\`json ... \`\`\` で出力してください。
+※手順の各ステップには、絶対時刻ではなく「所要時間（分、整数数値）」を指定してください。
+{
+  "steps": [
+    { "duration": 10, "title": "野菜を細かく刻む" },
+    { "duration": 15, "title": "フライパンで炒めて味付け" }
+  ]
+}
+`;
+
+    try {
+        // エンドポイントを最新の gemini-3.5-flash に設定
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${appData.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [
+                    { role: 'user', parts: [{ text: `【システム前提命令】\n${systemPrompt}\n\nユーザーの相談メッセージ: ${userMsg}` }] }
+                ],
+                generationConfig: { temperature: 0.7 }
+            })
+        });
+
+        const resData = await response.json();
+        
+        if (resData.error) {
+            throw new Error(resData.error.message);
+        }
+
+        const replyText = resData.candidates[0].content.parts[0].text;
+
+        // 画面への応答レンダリング
+        box.innerHTML += `<div class="chat-msg ai">${replyText}</div>`;
+        
+        // AIの応答内容からフォーマットを自動解析して現在のタイムライン/献立にインラインマージ
+        autoApplyAiResponse(replyText);
+
+    } catch (err) {
+        console.error(err);
+        box.innerHTML += `<div class="chat-msg ai">ごめんニャ、うまく通信できなかったみたいニャ... 原因: ${err.message || 'APIキーや通信環境を確認してニャ'}</div>`;
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerText = '送信';
+        box.scrollTop = box.scrollHeight;
+    }
+}
+
+/* ============ AI応答自動パース＆インライン自動マージ処理 ============ */
+function autoApplyAiResponse(text) {
+    let changed = false;
+    
+    // 1. 予定（===PLAN===）の自動抽出マージ
+    if (text.includes('===PLAN===')) {
+        try {
+            const jsonPart = text.split('===PLAN===')[1];
+            const cleanJson = extractJsonBlock(jsonPart);
+            const data = JSON.parse(cleanJson);
+            
+            if (data.events && Array.isArray(data.events)) {
+                let currentTimeline = appData[currentDisplayDay].timeline || [];
+                data.events.forEach(ev => {
+                    currentTimeline.push({
+                        id: genUniqueId(),
+                        time: ev.time || '12:00',
+                        title: ev.title || 'AI提案タスク',
+                        desc: ev.desc || '',
+                        tag: ev.tag || 'task',
+                        chime: !!ev.chime,
+                        done: false
+                    });
+                });
+                appData[currentDisplayDay].timeline = sortTimelineItems(currentTimeline);
+                changed = true;
+            }
+        } catch (e) { console.error('AI予定データのパースに失敗しました', e); }
+    }
+    
+    // 2. 献立段取り（===MEAL===）の自動抽出マージ
+    if (text.includes('===MEAL===')) {
+        try {
+            const jsonPart = text.split('===MEAL===')[1];
+            const cleanJson = extractJsonBlock(jsonPart);
+            const data = JSON.parse(cleanJson);
+            
+            if (data.steps && Array.isArray(data.steps)) {
+                if (!appData[currentDisplayDay].mealSteps) appData[currentDisplayDay].mealSteps = [];
+                data.steps.forEach(st => {
+                    appData[currentDisplayDay].mealSteps.push({
+                        duration: parseInt(st.duration, 10) || 5,
+                        title: st.title || ''
+                    });
+                });
+                changed = true;
+            }
+        } catch (e) { console.error('AI献立データのパースに失敗しました', e); }
+    }
+    
+    if (changed) {
+        saveAppData();
+        renderCurrentTabContent();
+    }
+}
+
+function extractJsonBlock(str) {
+    if (!str) return '';
+    let out = str.trim();
+    if (out.includes('```json')) {
+        out = out.split('```json')[1].split('```')[0];
+    } else if (out.includes('```')) {
+        out = out.split('```')[1].split('```')[0];
+    }
+    return out.trim();
+}
+
+/* ============ 振り返り日記の自動箇条書き生成＆Web Share ============ */
+function generateDiary() {
+    closeModal('modal-menu');
+    
+    const timeline = appData.today.timeline || [];
+    const mealSteps = appData.today.mealSteps || [];
+    
+    // ルーティン（tag==='routine'）以外の純粋な追加タスクとカレンダー項目をフィルタ
+    const extraTasks = timeline.filter(item => item.tag !== 'routine');
+    
+    let text = `【今日の振り返り日記】\n`;
+    const d = new Date();
+    text += `日付: ${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}\n\n`;
+    
+    text += `■ 今日達成した追加タスク・出来事:\n`;
+    if (extraTasks.length === 0) {
+        text += `・特になし\n`;
+    } else {
+        extraTasks.forEach(t => {
+            text += `・[${t.done ? '○完了' : '×未完'}] ${t.time} ${t.title} ${t.desc ? `(${t.desc})` : ''}\n`;
+        });
+    }
+    
+    text += `\n■ 今日のごはん調理段取り実績:\n`;
+    if (mealSteps.length === 0) {
+        text += `・記録なし\n`;
+    } else {
+        mealSteps.forEach((s, idx) => {
+            text += ` ${idx+1}. ${s.title} (目安:${s.duration}分)\n`;
+        });
+    }
+    
+    text += `\n今日も一日お疲れ様でしたニャ！🐾`;
+    
+    document.getElementById('diary-output-text').value = text;
+    openModal('modal-diary');
+}
+
+async function handleShareDiary() {
+    const txt = document.getElementById('diary-output-text').value;
+    if (!txt) return;
+    
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: 'Daily Planner AI - 今日の振り返り',
+                text: txt
+            });
+        } catch (e) {
+            console.log('共有がキャンセルまたは失敗しました', e);
+        }
+    } else {
+        // 非対応環境ブラウザ（PCなど）向けクリップボードコピーフォールバック
+        try {
+            await navigator.clipboard.writeText(txt);
+            alert('📋 お使いのブラウザはShare API非対応のため、代わりに日記テキストをクリップボードにコピーしたニャ！メールやSNSに貼り付けて使ってニャ。');
+        } catch (err) {
+            alert('コピーに失敗したため、テキストエリアから直接コピーしてニャ。');
+        }
+    }
+}
+
+/* ============ 外部手動データインポート画面（モーダル） ============ */
+function openImportModal(targetType) {
+    closeModal('modal-menu');
+    const title = document.getElementById('import-modal-title');
+    const btn = document.getElementById('btn-execute-import');
+    document.getElementById('import-pasted-text').value = '';
+    
+    if (targetType === 'timeline') {
+        title.innerText = '📥 予定データ手動インポート';
+        btn.onclick = () => executeManualImport('timeline');
+    } else {
+        title.innerText = '📥 献立データ手動インポート';
+        btn.onclick = () => executeManualImport('meal');
+    }
+    openModal('modal-import');
+}
+
+function executeManualImport(targetType) {
+    const pText = document.getElementById('import-pasted-text').value.trim();
+    if (!pText) return;
+    
+    try {
+        const cleanJson = extractJsonBlock(pText);
+        const parsed = JSON.parse(cleanJson);
+        
+        if (targetType === 'timeline') {
+            if (parsed.events && Array.isArray(parsed.events)) {
+                let currentTimeline = appData[currentDisplayDay].timeline || [];
+                parsed.events.forEach(ev => {
+                    currentTimeline.push({
+                        id: genUniqueId(),
+                        time: ev.time || '12:00',
+                        title: ev.title || 'インポート予定',
+                        desc: ev.desc || '',
+                        tag: ev.tag || 'task',
+                        chime: !!ev.chime,
+                        done: false
+                    });
+                });
+                appData[currentDisplayDay].timeline = sortTimelineItems(currentTimeline);
+            } else { throw new Error('events配列が見つかりません'); }
+            
+        } else if (targetType === 'meal') {
+            if (parsed.steps && Array.isArray(parsed.steps)) {
+                if (!appData[currentDisplayDay].mealSteps) appData[currentDisplayDay].mealSteps = [];
+                parsed.steps.forEach(st => {
+                    appData[currentDisplayDay].mealSteps.push({
+                        duration: parseInt(st.duration, 10) || 5,
+                        title: st.title || 'インポート工程'
+                    });
+                });
+            } else { throw new Error('steps配列が見つかりません'); }
+        }
+        
+        saveAppData();
+        renderCurrentTabContent();
+        closeModal('modal-import');
+        alert('📥 データのパース・マージが正常に完了したニャ！');
+        
+    } catch (e) {
+        alert('❌ パースに失敗したニャ。JSONの構造やフォーマットブロックマークを確認してニャ。\n原因: ' + e.message);
+    }
+}
+
+/* ============ データクリア初期化 ============ */
+function handleClearAllData() {
+    if (confirm('⚠️ 本当にすべてのデータ（APIキー、スケジュール、食材メモ）を消去して初期化するニャ？')) {
+        localStorage.removeItem('daily_planner_ai_data');
+        localStorage.removeItem('ai_request_timestamps');
+        localStorage.removeItem('last_opened_date');
+        location.reload();
+    }
+}
+
+/* ============ PWA用サービスワーカー登録 ============ */
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+        .then(reg => console.log('SW registered', reg))
+        .catch(err => console.error('SW registration failed', err));
+    });
+}
+
+// アプリの立ち上げ実行
+initApp();
+</script>
+</body>
+</html>
