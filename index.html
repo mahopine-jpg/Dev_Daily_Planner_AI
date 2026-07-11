@@ -1589,7 +1589,6 @@ function renderTaskEditor(root, options) {
   const state = {
     title: existing ? existing.title || '' : '',
     startTime: existing ? existing.startTime || '' : '',
-    endTime: existing ? existing.endTime || '' : '',
     memo: existing ? existing.memo || '' : '',
     steps:
       existing && existing.recipe && Array.isArray(existing.recipe.steps)
@@ -1612,15 +1611,9 @@ function renderTaskEditor(root, options) {
             <input id="te-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="${isMeal ? '例：鶏肉の和風炒め' : '例：資料作成'}" />
           </div>
 
-          <div class="u-flex u-gap-12">
-            <div class="field" style="flex:1;">
-              <label class="field__label" for="te-start">開始時刻</label>
-              <input id="te-start" class="input" type="time" value="${state.startTime}" />
-            </div>
-            <div class="field" style="flex:1;">
-              <label class="field__label" for="te-end">終了時刻（任意）</label>
-              <input id="te-end" class="input" type="time" value="${state.endTime}" />
-            </div>
+          <div class="field">
+            <label class="field__label" for="te-start">開始時刻</label>
+            <input id="te-start" class="input" type="time" value="${state.startTime}" />
           </div>
 
           ${
@@ -1662,9 +1655,6 @@ function renderTaskEditor(root, options) {
     });
     root.querySelector('#te-start').addEventListener('input', (e) => {
       state.startTime = e.target.value;
-    });
-    root.querySelector('#te-end').addEventListener('input', (e) => {
-      state.endTime = e.target.value;
     });
     root.querySelector('#te-memo').addEventListener('input', (e) => {
       state.memo = e.target.value;
@@ -1732,7 +1722,6 @@ function renderTaskEditor(root, options) {
       const patch = {
         title,
         startTime: state.startTime || null,
-        endTime: state.endTime || null,
         memo: state.memo,
         updatedAt: now,
       };
