@@ -48,7 +48,8 @@ html, body {
 .app-container { 
     display: flex; 
     flex-direction: column; 
-    height: 100vh; 
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     max-width: 500px; 
     margin: 0 auto; 
     background: var(--bg-color); 
@@ -245,6 +246,11 @@ footer {
 
 .form-group { margin-bottom: 18px; }
 .form-group label { display: block; font-size: 13px; font-weight: bold; color: var(--text-sub); margin-bottom: 6px; }
+.edit-panel-row { display: flex; gap: 10px; margin-bottom: 18px; }
+.edit-panel-row .field { flex: 1; min-width: 0; }
+.edit-panel-row .field label { display: block; font-size: 13px; font-weight: bold; color: var(--text-sub); margin-bottom: 6px; }
+.edit-panel-row .field select, .edit-panel-row .field input[type="time"] { width: 100%; }
+.toggle-switch-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-sub); cursor: pointer; white-space: nowrap; }
 .input-text { width: 100%; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; font-size: 14px; outline: none; font-family: inherit; }
 .input-text:focus { border-color: var(--accent); }
 .help-link { font-size: 13px; color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; margin-bottom: 14px; font-weight: bold; }
@@ -432,6 +438,22 @@ footer {
 </div>
 
 <script>
+// iOS Safariはアドレスバー等の増減で100vh/100dvhの基準がずれ、
+// タブバーが隠れたり余白が出たりすることがあるため、実際のビューポート高さを
+// 都度 --app-height に反映する（過去セッションで確立済みの対策を移植）。
+function setAppHeight() {
+    const h = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-height', h + 'px');
+}
+setAppHeight();
+requestAnimationFrame(setAppHeight);
+window.addEventListener('load', setAppHeight);
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', setAppHeight);
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', setAppHeight);
+}
+
 let currentTab = 'timeline';  
 let currentDisplayDay = 'today'; 
 let currentChatContext = 'schedule';
