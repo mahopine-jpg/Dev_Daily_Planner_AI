@@ -8,7 +8,7 @@
  * 古いキャッシュのindex.htmlが配信され続けてしまう。
  */
 
-const CACHE_VERSION = '20260711-2359'; // ← index.html更新時は必ずここを変更する
+const CACHE_VERSION = '20260712-0030'; // ← index.html更新時は必ずここを変更する
 const CACHE_NAME = `dailyplanner-ai-${CACHE_VERSION}`;
 const APP_SHELL = ['./', './index.html'];
 
