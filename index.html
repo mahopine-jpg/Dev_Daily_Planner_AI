@@ -749,6 +749,7 @@ const PREFIXES = {
   message: 'MSG',
   suggestion: 'SUGGEST',
 };
+/* 注: step プレフィックスは元々定義済み。手動編集フェーズで taskEditor.js から使用開始。 */
 
 function nextSeq(counterName) {
   const counters = window.Storage.get('idCounters', {});
@@ -1027,7 +1028,7 @@ function renderTimeline(events) {
         .map((e) => {
           const badge = categoryBadge(e);
           return `
-            <div class="timeline__row">
+            <div class="timeline__row" data-task-id="${e.id}" style="cursor:pointer;">
               <div class="timeline__time">${e.startTime || '--:--'}</div>
               <div class="timeline__node"></div>
               <div class="timeline__card card timeline__card--${badge.cls}">
@@ -1087,6 +1088,16 @@ function renderScheduleTab(root) {
     root.querySelector('#add-schedule-task').addEventListener('click', () => {
       window.App.openTaskEditor({ mode: 'schedule', date: DateUtils.resolveTarget(state.target) });
     });
+
+    root.querySelectorAll('.timeline__row').forEach((row) => {
+      row.addEventListener('click', () => {
+        window.App.openTaskEditor({
+          mode: 'schedule',
+          date: DateUtils.resolveTarget(state.target),
+          taskId: row.dataset.taskId,
+        });
+      });
+    });
   }
 
   paint();
@@ -1124,7 +1135,7 @@ function renderMealCard(e) {
   const stepCount = e.recipe && e.recipe.steps ? e.recipe.steps.length : 0;
   const badgeLabel = e.sourceType === 'ai_chat' ? 'AI相談で組んだ献立' : e.sourceType === 'manual' ? '手動追加' : '献立';
   return `
-    <div class="timeline__row">
+    <div class="timeline__row" data-task-id="${e.id}" style="cursor:pointer;">
       <div class="timeline__time">${e.startTime || '--:--'}</div>
       <div class="timeline__node"></div>
       <div class="timeline__card card timeline__card--is-meal">
@@ -1190,6 +1201,16 @@ function renderMealTab(root) {
     root.querySelector('#add-meal-task').addEventListener('click', () => {
       window.App.openTaskEditor({ mode: 'meal', date: DateUtils.resolveTarget(state.target) });
     });
+
+    root.querySelectorAll('.timeline__row').forEach((row) => {
+      row.addEventListener('click', () => {
+        window.App.openTaskEditor({
+          mode: 'meal',
+          date: DateUtils.resolveTarget(state.target),
+          taskId: row.dataset.taskId,
+        });
+      });
+    });
   }
 
   paint();
@@ -1210,6 +1231,103 @@ window.Screens.meal = renderMealTab;
 (function () {
   'use strict';
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+/** 食材メモの追加・編集モーダル（画面遷移ではなくモーダルのため、taskEditorとは別に軽量に実装） */
+function openIngredientModal(existing, onSaved) {
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+
+  const state = {
+    name: existing ? existing.name || '' : '',
+    memo: existing ? existing.memo || '' : '',
+  };
+
+  function paint() {
+    modalRoot.innerHTML = `
+      <div class="sheet-backdrop" id="ing-backdrop">
+        <div class="sheet">
+          <div class="sheet__handle"></div>
+          <div class="sheet__header">
+            <h2 class="display" style="font-size:18px;">${existing ? '食材を編集' : '食材を追加'}</h2>
+            <button class="sheet__close" id="ing-close" aria-label="閉じる">${Icons.close}</button>
+          </div>
+          <div class="field">
+            <label class="field__label" for="ing-name">食材名</label>
+            <input id="ing-name" class="input" type="text" value="${escapeHtml(state.name)}" placeholder="例：鶏むね肉" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="ing-memo">メモ（任意）</label>
+            <input id="ing-memo" class="input" type="text" value="${escapeHtml(state.memo)}" placeholder="例：賞味期限が近い" />
+          </div>
+          <div class="u-flex u-gap-8 u-mt-16">
+            ${existing ? `<button id="ing-delete" class="btn btn--danger">削除する</button>` : ''}
+            <button id="ing-save" class="btn btn--primary btn--block">保存する</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modalRoot.querySelector('#ing-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'ing-backdrop') close();
+    });
+    modalRoot.querySelector('#ing-close').addEventListener('click', () => close());
+    modalRoot.querySelector('#ing-name').addEventListener('input', (e) => {
+      state.name = e.target.value;
+    });
+    modalRoot.querySelector('#ing-memo').addEventListener('input', (e) => {
+      state.memo = e.target.value;
+    });
+
+    if (existing) {
+      modalRoot.querySelector('#ing-delete').addEventListener('click', () => {
+        const ok = window.confirm('この食材メモを削除します。よろしいですか？');
+        if (!ok) return;
+        Storage.Collection.remove('ingredients', existing.id);
+        window.App.toast('削除しました');
+        close(true);
+      });
+    }
+
+    modalRoot.querySelector('#ing-save').addEventListener('click', () => {
+      const name = state.name.trim();
+      if (!name) {
+        window.App.toast('食材名を入力してください');
+        return;
+      }
+      const now = new Date().toISOString();
+      if (existing) {
+        Storage.Collection.update('ingredients', existing.id, {
+          name,
+          memo: state.memo.trim(),
+          updatedAt: now,
+        });
+        window.App.toast('更新しました');
+      } else {
+        Storage.Collection.insert('ingredients', {
+          id: IdGenerator.generateId('ingredient'),
+          name,
+          memo: state.memo.trim(),
+          createdAt: now,
+        });
+        window.App.toast('追加しました');
+      }
+      close(true);
+    });
+  }
+
+  function close(shouldRefresh) {
+    modalRoot.innerHTML = '';
+    if (shouldRefresh && typeof onSaved === 'function') onSaved();
+  }
+
+  paint();
+}
+
 function renderIngredients(root) {
   const items = Storage.Collection.all('ingredients');
 
@@ -1228,11 +1346,12 @@ function renderIngredients(root) {
           : `<div class="u-flex-col u-gap-12">${items
               .map(
                 (i) => `
-              <div class="card u-flex u-between u-center">
+              <div class="card u-flex u-between u-center" data-ingredient-id="${i.id}" style="cursor:pointer;">
                 <div>
-                  <div class="timeline__title">${i.name}</div>
-                  ${i.memo ? `<div class="timeline__meta">${i.memo}</div>` : ''}
+                  <div class="timeline__title">${escapeHtml(i.name)}</div>
+                  ${i.memo ? `<div class="timeline__meta">${escapeHtml(i.memo)}</div>` : ''}
                 </div>
+                <button class="btn btn--danger btn--sm ingredient-delete" data-ingredient-id="${i.id}" aria-label="削除">${Icons.close}</button>
               </div>`
               )
               .join('')}</div>`
@@ -1242,7 +1361,27 @@ function renderIngredients(root) {
   `;
 
   root.querySelector('#add-ingredient').addEventListener('click', () => {
-    window.App.toast('食材の追加は次のステップで実装します');
+    openIngredientModal(null, () => renderIngredients(root));
+  });
+
+  root.querySelectorAll('[data-ingredient-id]').forEach((el) => {
+    if (!el.classList.contains('ingredient-delete')) {
+      el.addEventListener('click', () => {
+        const item = Storage.Collection.find('ingredients', (i) => i.id === el.dataset.ingredientId);
+        openIngredientModal(item, () => renderIngredients(root));
+      });
+    }
+  });
+
+  root.querySelectorAll('.ingredient-delete').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ok = window.confirm('この食材メモを削除します。よろしいですか？');
+      if (!ok) return;
+      Storage.Collection.remove('ingredients', btn.dataset.ingredientId);
+      window.App.toast('削除しました');
+      renderIngredients(root);
+    });
   });
 }
 
@@ -1416,6 +1555,230 @@ window.Screens.settings = renderSettings;
 
 
 /**
+ * taskEditor.js
+ * 予定タブ／献立タブの「＋」ボタン、および既存タスクのタップから開く
+ * 追加・編集モーダル（ボトムシート）。FR-6対応。
+ * 献立モード（isMeal）のときのみ、調理手順（recipe.steps）の編集UIを表示する。
+ * リスケ（FR-7・rescheduleHistoryの記録）は次フェーズで対応する。
+ */
+
+(function () {
+  'use strict';
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+function renderStepRow(step, index) {
+  return `
+    <div class="step-row u-flex u-gap-8 u-mt-16" data-step-index="${index}">
+      <input class="input step-text" type="text" placeholder="手順（例：材料を切る）" value="${escapeHtml(step.text)}" style="flex:1;" />
+      <input class="input step-duration" type="number" min="0" inputmode="numeric" placeholder="分" value="${step.durationMinutes ?? ''}" style="width:64px;" />
+      <button type="button" class="btn btn--danger btn--sm remove-step" aria-label="この手順を削除">${Icons.close}</button>
+    </div>
+  `;
+}
+
+function renderTaskEditor(root, options) {
+  const { mode, date, taskId } = options;
+  const isMeal = mode === 'meal';
+  const existing = taskId ? Storage.Collection.find('events', (e) => e.id === taskId) : null;
+
+  const state = {
+    title: existing ? existing.title || '' : '',
+    startTime: existing ? existing.startTime || '' : '',
+    endTime: existing ? existing.endTime || '' : '',
+    memo: existing ? existing.memo || '' : '',
+    steps:
+      existing && existing.recipe && Array.isArray(existing.recipe.steps)
+        ? existing.recipe.steps.map((s) => ({ ...s }))
+        : [],
+  };
+
+  function paint() {
+    root.innerHTML = `
+      <div class="sheet-backdrop" id="te-backdrop">
+        <div class="sheet">
+          <div class="sheet__handle"></div>
+          <div class="sheet__header">
+            <h2 class="display" style="font-size:18px;">${existing ? 'タスクを編集' : isMeal ? '献立を追加' : '予定を追加'}</h2>
+            <button class="sheet__close" id="te-close" aria-label="閉じる">${Icons.close}</button>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="te-title">${isMeal ? '料理名' : '内容'}</label>
+            <input id="te-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="${isMeal ? '例：鶏肉の和風炒め' : '例：資料作成'}" />
+          </div>
+
+          <div class="u-flex u-gap-12">
+            <div class="field" style="flex:1;">
+              <label class="field__label" for="te-start">開始時刻</label>
+              <input id="te-start" class="input" type="time" value="${state.startTime}" />
+            </div>
+            <div class="field" style="flex:1;">
+              <label class="field__label" for="te-end">終了時刻（任意）</label>
+              <input id="te-end" class="input" type="time" value="${state.endTime}" />
+            </div>
+          </div>
+
+          ${
+            isMeal
+              ? `
+          <div class="field">
+            <label class="field__label">調理手順（任意）</label>
+            <div id="te-steps">
+              ${state.steps.map((s, i) => renderStepRow(s, i)).join('')}
+            </div>
+            <button type="button" id="te-add-step" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 手順を追加</button>
+          </div>`
+              : ''
+          }
+
+          <div class="field">
+            <label class="field__label" for="te-memo">メモ（任意）</label>
+            <textarea id="te-memo" class="textarea" placeholder="メモ">${escapeHtml(state.memo)}</textarea>
+          </div>
+
+          <div class="u-flex u-gap-8 u-mt-16">
+            ${existing ? `<button id="te-delete" class="btn btn--danger">削除する</button>` : ''}
+            <button id="te-save" class="btn ${isMeal ? 'btn--meal-primary' : 'btn--primary'} btn--block">保存する</button>
+          </div>
+        </div>
+      </div>
+    `;
+    bindEvents();
+  }
+
+  function bindEvents() {
+    root.querySelector('#te-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'te-backdrop') close();
+    });
+    root.querySelector('#te-close').addEventListener('click', () => close());
+
+    root.querySelector('#te-title').addEventListener('input', (e) => {
+      state.title = e.target.value;
+    });
+    root.querySelector('#te-start').addEventListener('input', (e) => {
+      state.startTime = e.target.value;
+    });
+    root.querySelector('#te-end').addEventListener('input', (e) => {
+      state.endTime = e.target.value;
+    });
+    root.querySelector('#te-memo').addEventListener('input', (e) => {
+      state.memo = e.target.value;
+    });
+
+    if (isMeal) {
+      root.querySelector('#te-add-step').addEventListener('click', () => {
+        state.steps.push({ id: null, text: '', durationMinutes: 5 });
+        paint();
+      });
+      root.querySelectorAll('.step-text').forEach((input, i) => {
+        input.addEventListener('input', (e) => {
+          state.steps[i].text = e.target.value;
+        });
+      });
+      root.querySelectorAll('.step-duration').forEach((input, i) => {
+        input.addEventListener('input', (e) => {
+          state.steps[i].durationMinutes = e.target.value === '' ? null : Number(e.target.value);
+        });
+      });
+      root.querySelectorAll('.remove-step').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const idx = Number(e.currentTarget.closest('.step-row').dataset.stepIndex);
+          state.steps.splice(idx, 1);
+          paint();
+        });
+      });
+    }
+
+    if (existing) {
+      root.querySelector('#te-delete').addEventListener('click', () => {
+        const ok = window.confirm('このタスクを削除します。よろしいですか？');
+        if (!ok) return;
+        Storage.Collection.remove('events', existing.id);
+        window.App.toast('削除しました');
+        close(true);
+      });
+    }
+
+    root.querySelector('#te-save').addEventListener('click', save);
+  }
+
+  function save() {
+    const title = state.title.trim();
+    if (!title) {
+      window.App.toast(isMeal ? '料理名を入力してください' : '内容を入力してください');
+      return;
+    }
+    const now = new Date().toISOString();
+
+    let recipe = null;
+    if (isMeal) {
+      const steps = state.steps
+        .filter((s) => s.text && s.text.trim().length > 0)
+        .map((s, i) => ({
+          id: s.id || IdGenerator.generateId('step'),
+          order: i + 1,
+          text: s.text.trim(),
+          durationMinutes: s.durationMinutes === undefined ? null : s.durationMinutes,
+        }));
+      recipe = steps.length > 0 ? { steps } : null;
+    }
+
+    if (existing) {
+      const patch = {
+        title,
+        startTime: state.startTime || null,
+        endTime: state.endTime || null,
+        memo: state.memo,
+        updatedAt: now,
+      };
+      if (isMeal) patch.recipe = recipe;
+      Storage.Collection.update('events', existing.id, patch);
+      window.App.toast('更新しました');
+    } else {
+      Storage.Collection.insert('events', {
+        id: IdGenerator.generateId('event'),
+        date,
+        startTime: state.startTime || null,
+        endTime: state.endTime || null,
+        title,
+        sourceType: 'manual',
+        sourceTemplateId: null,
+        sourceSuggestId: null,
+        category: isMeal ? 'meal' : 'other',
+        memo: state.memo,
+        recipe,
+        rescheduleHistory: [],
+        status: 'planned',
+        createdAt: now,
+        updatedAt: now,
+      });
+      window.App.toast('追加しました');
+    }
+    close(true);
+  }
+
+  function close(shouldRefresh) {
+    root.innerHTML = '';
+    if (shouldRefresh && typeof options.onSaved === 'function') {
+      options.onSaved();
+    }
+  }
+
+  paint();
+}
+
+window.Screens = window.Screens || {};
+window.Screens.taskEditor = renderTaskEditor;
+
+})();
+
+
+/**
  * app.js
  * 初期化・画面切り替え（ハッシュルーター）・下部ナビゲーションの描画。
  * チャット（chatPanel.js）とタスク編集（taskEditor.js）は次フェーズで接続する。
@@ -1455,6 +1818,7 @@ function renderShell() {
       ).join('')}
     </nav>
     <div id="toast" class="toast"></div>
+    <div id="modal-root"></div>
   `;
 
   appEl.querySelectorAll('.nav-item').forEach((btn) => {
@@ -1496,9 +1860,14 @@ function openChat(mode, target) {
   toast(`${mode === 'meal' ? '献立' : '予定'}チャットは次のステップで実装します`);
 }
 
-/** 手動追加・編集モーダルを開く（次フェーズで実装） */
+/** 手動追加・編集モーダルを開く。options: { mode: 'schedule'|'meal', date, taskId? } */
 function openTaskEditor(options) {
-  toast('手動での追加・編集は次のステップで実装します');
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot || !window.Screens.taskEditor) return;
+  window.Screens.taskEditor(modalRoot, {
+    ...options,
+    onSaved: () => paintRoute(),
+  });
 }
 
 function start() {
