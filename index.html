@@ -76,6 +76,7 @@ html, body {
   color: var(--ink);
   font-family: var(--font-body);
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden; /* 個々の要素の横はみ出しが万一残っていても、画面全体の横スクロールは起きないようにする保険 */
 }
 
 body {
@@ -363,6 +364,21 @@ a { color: var(--primary); }
   font-size: 15px;
   color: var(--ink);
   width: 100%;
+  min-width: 0; /* flexコンテナ(.field等)の子要素になった際、内容量に応じて広がってしまう既定挙動(min-width:auto)を無効化する */
+  box-sizing: border-box;
+}
+
+/*
+ * iOS Safariの input[type="time"] / input[type="date"] は、ネイティブのピッカーUIが
+ * 独自の最小幅を持っており、上記の min-width:0 だけでは幅の指定(width:100%)を
+ * 無視して横にはみ出すことがある。type別に明示的に上書きして確実に幅を制約する。
+ */
+input[type="time"],
+input[type="date"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .input:focus, .textarea:focus, .select:focus {
