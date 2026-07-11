@@ -163,8 +163,6 @@ header h1 {
 .chime-indicator { font-size: 13px; }
 .delete-item-btn { background: none; border: none; color: #ff7675; font-size: 16px; cursor: pointer; padding: 4px; }
 
-.nekosuke-comment { font-style: italic; font-size: 12px; color: var(--accent); background: var(--accent-light); padding: 4px 10px; border-radius: 8px; display: inline-block; margin-top: 4px; }
-
 .meal-summary-bar { background: var(--card-bg); border-radius: 14px; padding: 14px; margin-bottom: 14px; font-size: 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
 .meal-summary-bar span { color: var(--accent); font-size: 18px; }
 .meal-step-list { display: flex; flex-direction: column; gap: 10px; }
@@ -583,7 +581,6 @@ function renderTimeline() {
                     </div>
                 </div>
                 ${item.desc ? `<div class="card-desc">${item.desc}</div>` : ''}
-                ${item.tag === 'routine' ? `<div class="nekosuke-comment">🐱「今日もいつものペースでファイトニャ！」</div>` : ''}
                 <div class="card-tags">
                     <span class="tag-chip ${item.tag || 'routine'}">${tagLabel}</span>
                 </div>
@@ -977,7 +974,9 @@ ${JSON.stringify(events)}
 【重要なルール】
 - 相談段階（まだ内容が固まっていない時）では、絶対にデータ変更のJSONを出力せず、コメントのみ返してください。
 - ユーザーが予定の追加・変更・削除について「これでお願い」「これで確定」など具体的に意思を示した時だけ、コメントの後に『===PLAN===』を挟んで、変更を反映した「予定全体」のJSONを返してください。変更しない予定も含め、全件を返してください（一部だけ返すと、他の予定が消えてしまいます）。
-- フォーマット: \`{ "events": [ { "time": "HH:MM", "title": "タイトル", "desc": "", "tag": "task", "chime": false } ] }\`
+- 【重要】既存の予定の時刻・内容を変更する場合は、上記【現在登録されている${dayLabel}の予定】に含まれるその予定の"id"を必ずそのまま維持して返してください。idを変えたり省略したりすると、別の新しい予定として重複登録されてしまいます。新しく追加する予定にだけ、idを付けずに返してください（アプリ側で自動的に発行します）。
+- 「全体的にリスケして」のように複数の予定をまとめて変更した場合は、コメント部分の最後に、何がどう変わったかを1〜2文で簡潔に要約してください（例:「朝食はそのまま、それ以降を1時間後ろにずらしたニャ」）。
+- フォーマット: \`{ "events": [ { "id": "変更する場合は元のid（新規追加なら省略）", "time": "HH:MM", "title": "タイトル", "desc": "", "tag": "task", "chime": false } ] }\`
 `;
     } else {
         const steps = appData[currentDisplayDay].mealSteps;
@@ -995,6 +994,7 @@ ${memoContext || '（空っぽ）'}
 - 相談段階（まだ献立が固まっていない時）では、絶対にデータ変更のJSONを出力せず、コメントのみ返してください。
 - ユーザーが献立・段取りについて「これでお願い」「これで確定」「もやしも追加して」など具体的に変更・確定の意思を示した時だけ、コメントの後に『===MEAL===』を挟んで、変更を反映した「段取り全体（完成形）」のJSONを返してください。既存の手順のうち変更しないものも含め、全件を返してください。食材を追加したい場合も、新しい手順を付け足すのではなく、既存の献立自体を作り直した完成形の段取りにしてください。
 - 「段取りを組み直して」と言われた場合は、それまでの相談内容を踏まえて段取り全体を新しく作り直し、古い手順は残さないでください。
+- 段取り全体を確定・変更した時は、コメント部分の最後に、何がどう変わったかを1〜2文で簡潔に要約してください。
 - フォーマット: \`{ "steps": [ { "duration": 10, "title": "手順のタイトル", "detail": "補足メモ" } ] }\`
 `;
     }
@@ -1065,9 +1065,18 @@ function applyContextualResponse(context, dataBlock) {
     try {
         const parsed = JSON.parse(extractJsonBlock(dataBlock));
         if (context === 'schedule' && parsed.events) {
-            appData[currentDisplayDay].timeline = sortTimelineItems(parsed.events.map(ev => ({
-                id: genUniqueId(), time: ev.time || '12:00', title: ev.title || '', desc: ev.desc || '', tag: ev.tag || 'task', chime: !!ev.chime, done: false
-            })));
+            // 【idによる同一予定の照合】AIが返してきたidが今の予定に実在すれば、同じ予定の更新として
+            // 扱い(完了状態を引き継ぐ)、実在しない/未指定のidは新規予定として新しいidを発行する。
+            // これにより「リスケして」等の一括変更依頼で、既存の予定が重複登録されるのを防ぐ。
+            const oldList = appData[currentDisplayDay].timeline;
+            appData[currentDisplayDay].timeline = sortTimelineItems(parsed.events.map(ev => {
+                const existing = ev.id ? oldList.find(t => t.id === ev.id) : null;
+                return {
+                    id: existing ? existing.id : genUniqueId(),
+                    time: ev.time || '12:00', title: ev.title || '', desc: ev.desc || '',
+                    tag: ev.tag || 'task', chime: !!ev.chime, done: existing ? existing.done : false
+                };
+            }));
             saveAppData();
             if (currentTab === 'timeline') renderTimeline();
         } else if (context === 'meal' && parsed.steps) {
