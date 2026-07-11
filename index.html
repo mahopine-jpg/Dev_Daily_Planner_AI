@@ -37,7 +37,6 @@
 
 html { height: 100%; }
 body { 
-    height: 100%; 
     background: var(--bg-color); 
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
     color: var(--text-main); 
@@ -259,10 +258,6 @@ footer {
 
 .form-group { margin-bottom: 18px; }
 .form-group label { display: block; font-size: 13px; font-weight: bold; color: var(--text-sub); margin-bottom: 6px; }
-.edit-panel-row { display: flex; gap: 10px; margin-bottom: 18px; }
-.edit-panel-row .field { flex: 1; min-width: 0; }
-.edit-panel-row .field label { display: block; font-size: 13px; font-weight: bold; color: var(--text-sub); margin-bottom: 6px; }
-.edit-panel-row .field select, .edit-panel-row .field input[type="time"] { width: 100%; }
 .toggle-switch-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-sub); cursor: pointer; white-space: nowrap; }
 .input-text { width: 100%; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; font-size: 14px; outline: none; font-family: inherit; }
 .input-text:focus { border-color: var(--accent); }
@@ -645,35 +640,31 @@ function openEditItemPanel(id) {
     
     const body = document.getElementById('modal-edit-item-body');
     body.innerHTML = `
-        <div class="edit-panel-row">
-            <div class="field" style="flex:0 0 100px;">
-                <label>時刻</label>
-                <input type="time" id="edit-item-time" class="input-text" value="${item.time || ''}">
-            </div>
-            <div class="field">
-                <label>タイトル</label>
-                <input type="text" id="edit-item-title" class="input-text" value="${item.title || ''}">
-            </div>
+        <div class="form-group">
+            <label>時刻</label>
+            <input type="time" id="edit-item-time" class="input-text" value="${item.time || ''}">
+        </div>
+        <div class="form-group">
+            <label>タイトル</label>
+            <input type="text" id="edit-item-title" class="input-text" value="${item.title || ''}">
         </div>
         <div class="form-group">
             <label>詳細・メモ</label>
-            <input type="text" id="edit-item-desc" class="input-text" value="${item.desc || ''}">
+            <textarea id="edit-item-desc" class="input-text" rows="3" style="resize:vertical; font-family:inherit;">${item.desc || ''}</textarea>
         </div>
-        <div class="edit-panel-row">
-            <div class="field">
-                <label>区分タグ</label>
-                <select id="edit-item-tag" class="input-text" style="padding:10px;">
-                    <option value="routine" ${item.tag==='routine'?'selected':''}>ルーティン</option>
-                    <option value="cooking" ${item.tag==='cooking'?'selected':''}>調理</option>
-                    <option value="task" ${item.tag==='task'?'selected':''}>追加タスク</option>
-                    <option value="calendar" ${item.tag==='calendar'?'selected':''}>カレンダー連携</option>
-                </select>
-            </div>
-            <div class="field" style="justify-content: center; align-items: flex-start; padding-left:14px;">
-                <label class="toggle-switch-label">
-                    <input type="checkbox" id="edit-item-chime" ${item.chime?'checked':''}> チャイム (🔔)
-                </label>
-            </div>
+        <div class="form-group">
+            <label>区分タグ</label>
+            <select id="edit-item-tag" class="input-text" style="padding:10px;">
+                <option value="routine" ${item.tag==='routine'?'selected':''}>ルーティン</option>
+                <option value="cooking" ${item.tag==='cooking'?'selected':''}>調理</option>
+                <option value="task" ${item.tag==='task'?'selected':''}>追加タスク</option>
+                <option value="calendar" ${item.tag==='calendar'?'selected':''}>カレンダー連携</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="toggle-switch-label">
+                <input type="checkbox" id="edit-item-chime" ${item.chime?'checked':''}> チャイム (🔔)
+            </label>
         </div>
         <button class="action-btn-block" onclick="saveTimelineItemChanges('${item.id}')">変更を保存</button>
     `;
