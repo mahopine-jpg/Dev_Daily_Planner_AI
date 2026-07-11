@@ -6,17 +6,12 @@
 <title>Daily Planner AI</title>
 <meta name="description" content="AIチャットで今日と明日の予定・献立を組み立てるパーソナルプランナー" />
 <meta name="theme-color" content="#6E4FA0" />
-<link rel="manifest" href="manifest.json" />
-<link rel="apple-touch-icon" href="icons/icon-192.png" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="Daily Planner AI" />
 <style>
 /* ==========================================================================
    Daily Planner AI - Design Tokens & Base Styles
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=Fredoka:wght@600;700&display=swap');
 
 :root {
   /* --- Color: base palette (Image1トーン) --- */
@@ -62,6 +57,7 @@
 
   /* --- Layout --- */
   --nav-height: 64px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --header-height: 56px;
   --content-max-width: 480px;
 }
@@ -122,16 +118,13 @@ a { color: var(--primary); }
 
 .screen {
   flex: 1;
-  padding-bottom: calc(var(--nav-height) + 12px);
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
   min-height: 100vh;
 }
 
 .app-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
   background: var(--bg-cream);
-  padding: 18px 20px 10px;
+  padding: 10px 20px 10px;
 }
 
 .app-header__title {
@@ -145,6 +138,29 @@ a { color: var(--primary); }
   color: var(--ink-muted);
 }
 
+/* --- App title bar (全画面共通、最上部) --- */
+.app-titlebar {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  text-align: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 16px 14px;
+  background: var(--bg-cream);
+}
+
+.app-titlebar__title {
+  font-family: 'Fredoka', var(--font-display);
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  background: linear-gradient(90deg, var(--primary) 0%, #9B6FC9 50%, var(--accent-blush) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* --- Bottom navigation --- */
 .bottom-nav {
   position: fixed;
@@ -153,14 +169,14 @@ a { color: var(--primary); }
   bottom: 0;
   width: 100%;
   max-width: var(--content-max-width);
-  height: var(--nav-height);
+  height: calc(var(--nav-height) + var(--safe-bottom));
   background: var(--surface);
   border-top: 1px solid rgba(110, 79, 160, 0.12);
   display: flex;
   align-items: stretch;
   justify-content: space-around;
   z-index: 20;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: var(--safe-bottom);
 }
 
 .nav-item {
@@ -303,7 +319,7 @@ a { color: var(--primary); }
 .fab {
   position: fixed;
   right: calc(50% - var(--content-max-width) / 2 + 20px);
-  bottom: calc(var(--nav-height) + 18px);
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 18px);
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -437,7 +453,7 @@ a { color: var(--primary); }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--nav-height) + 16px);
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 16px);
   transform: translateX(-50%);
   background: var(--ink);
   color: #fff;
@@ -532,7 +548,7 @@ a { color: var(--primary); }
 /* フローティングボタン（.fab）と重ならないよう、下部に余白を確保する。
    FABをのせる画面のscreen-bodyには必ずこのクラスを付与する。 */
 .screen-body--fab-spacing {
-  padding-bottom: calc(52px + 18px + 24px); /* FABの高さ + 浮かせる距離 + 余裕 */
+  padding-bottom: calc(52px + 18px + 24px + var(--safe-bottom)); /* FABの高さ + 浮かせる距離 + 余裕 + セーフエリア */
 }
 
 /* --- Utility --- */
@@ -1421,6 +1437,9 @@ function currentRoute() {
 function renderShell() {
   const appEl = document.getElementById('app');
   appEl.innerHTML = `
+    <div class="app-titlebar">
+      <h1 class="app-titlebar__title">Daily Planner AI</h1>
+    </div>
     <div id="screen" class="screen"></div>
     <nav class="bottom-nav">
       ${NAV_ITEMS.map(
