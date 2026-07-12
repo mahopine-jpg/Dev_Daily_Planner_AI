@@ -824,6 +824,177 @@ input[type="date"] {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
+/* --- Chat overlay（chatPanel.js）--- */
+/* 10章の教訓に従い、JSでの高さ測定・固定は一切行わない。position:fixedの全画面オーバーレイ
+   自体は通常のモーダルパターンであり問題ない（禁止されているのはbody自体をfixedにして
+   JS計測値で高さを固定する実装）。内部はflexboxのみで完結させる。 */
+.chat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg-cream);
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.chat-header__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--primary-dark);
+}
+
+.chat-header--meal .chat-header__title { color: var(--cat-meal); }
+
+.chat-header__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-muted);
+}
+
+.chat-header__reset {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger);
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(194, 102, 95, 0.1);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-bubble-row {
+  display: flex;
+  width: 100%;
+}
+
+.chat-bubble-row--user { justify-content: flex-end; }
+.chat-bubble-row--ai { justify-content: flex-start; }
+
+.chat-bubble {
+  max-width: 82%;
+  padding: 11px 15px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.chat-bubble--user {
+  background: var(--primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble--ai {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble--typing { color: var(--ink-muted); font-style: italic; }
+
+.chat-suggest-card {
+  background: var(--surface);
+  border: 1.5px solid var(--primary-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin: 2px 0 2px 4px;
+  max-width: 82%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-suggest-card--meal { border-color: var(--cat-meal); }
+
+.chat-suggest-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.chat-suggest-card__title { font-weight: 700; font-size: 14px; }
+.chat-suggest-card__time,
+.chat-suggest-card__dishes { font-size: 12px; color: var(--ink-muted); }
+.chat-suggest-card__status { font-size: 12px; font-weight: 700; color: var(--success); }
+.chat-suggest-card.is-dismissed .chat-suggest-card__status { color: var(--ink-faint); }
+.chat-suggest-card__actions { display: flex; gap: 8px; margin-top: 4px; }
+.chat-suggest-card__actions .btn { flex: 1; }
+
+.chat-fallback {
+  margin: 2px 0 2px 4px;
+  font-size: 12px;
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+.chat-quick-actions {
+  flex-shrink: 0;
+  padding: 0 14px 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-quick-actions .btn { flex: 1; }
+
+.chat-input-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--bg-cream-deep);
+}
+
+.chat-input-bar__textarea {
+  flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 120px;
+  margin-bottom: 0;
+}
+
+.chat-input-bar__send {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-input-bar__send--meal { background: var(--cat-meal); }
+
+.chat-input-bar__send:disabled { opacity: 0.4; }
+
 </style>
 </head>
 <body>
@@ -2344,10 +2515,656 @@ window.MealPlanEditor = {
 
 
 /**
+ * chatPanel.js
+ * 相談チャットの共通UI（予定/献立どちらのモードでも使う）。FR-1・FR-2対応。
+ * - 会話履歴（MSG）・AI提案（SUGGEST）は chatMode（schedule/meal）× date（対象日）で完全分離
+ * - 予定チャット：構造化提案 → ユーザーが「反映する」を選択 → EVT生成
+ * - 献立チャット：フェーズ1（メニュー相談→「これで決定」）→フェーズ2（「段取りを作って」→自動反映）
+ * - Gemini APIへは responseMimeType:"application/json" + responseSchema で構造化出力を要求する
+ *   （設計書8.3のマーカー方式は今回は不採用。JSON Schema指定の方が解析が確実なため）
+ */
+
+(function () {
+  'use strict';
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+/* ------------------------------------------------------------------ */
+/* データアクセス（MSG / SUGGEST）                                     */
+/* ------------------------------------------------------------------ */
+
+function getMessages(mode, date) {
+  return Storage.Collection.filter('messages', (m) => m.chatMode === mode && m.date === date).sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+  );
+}
+
+function addMessage(mode, date, role, text, extra) {
+  const msg = {
+    id: IdGenerator.generateId('message'),
+    chatMode: mode,
+    date,
+    role,
+    text,
+    createdAt: new Date().toISOString(),
+    ...(extra || {}),
+  };
+  Storage.Collection.insert('messages', msg);
+  return msg;
+}
+
+function getSuggestions(date) {
+  return Storage.Collection.filter('suggestions', (s) => s.chatMode === 'schedule' && s.date === date).sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+  );
+}
+
+function addSuggestion(date, sourceMessageId, data) {
+  const sug = {
+    id: IdGenerator.generateId('suggestion'),
+    chatMode: 'schedule',
+    date,
+    sourceMessageId,
+    title: data.title,
+    startTime: data.startTime || null,
+    endTime: data.endTime || null,
+    category: data.category || 'other',
+    memo: data.memo || '',
+    status: 'pending',
+    appliedEventId: null,
+    createdAt: new Date().toISOString(),
+  };
+  Storage.Collection.insert('suggestions', sug);
+  return sug;
+}
+
+function applySuggestion(sug) {
+  const now = new Date().toISOString();
+  const evt = {
+    id: IdGenerator.generateId('event'),
+    date: sug.date,
+    startTime: sug.startTime || null,
+    endTime: sug.endTime || null,
+    title: sug.title,
+    sourceType: 'ai_chat',
+    sourceTemplateId: null,
+    sourceSuggestId: sug.id,
+    category: sug.category || 'other',
+    memo: sug.memo || '',
+    rescheduleHistory: [],
+    status: 'planned',
+    createdAt: now,
+    updatedAt: now,
+  };
+  Storage.Collection.insert('events', evt);
+  Storage.Collection.update('suggestions', sug.id, { status: 'applied', appliedEventId: evt.id });
+  return evt;
+}
+
+function dismissSuggestion(sug) {
+  Storage.Collection.update('suggestions', sug.id, { status: 'dismissed' });
+}
+
+/** 献立チャットの「やり直す」：対象日のMEALPLANと、対象日・献立モードの会話履歴を削除する */
+function resetMealChat(date) {
+  window.MealPlanEditor.clearMealPlan(date);
+  Storage.Collection.filter('messages', (m) => m.chatMode === 'meal' && m.date === date).forEach((m) =>
+    Storage.Collection.remove('messages', m.id)
+  );
+  Storage.Collection.filter('suggestions', (s) => s.chatMode === 'meal' && s.date === date).forEach((s) =>
+    Storage.Collection.remove('suggestions', s.id)
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 送信回数の自主制限（設計書8.3：直近60秒の送信回数を記録し、上限で送信を控える）       */
+/* ------------------------------------------------------------------ */
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 8;
+
+function checkAndRecordRateLimit() {
+  const now = Date.now();
+  let stamps = Storage.get('apiCallTimestamps', []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (stamps.length >= RATE_LIMIT_MAX) {
+    Storage.set('apiCallTimestamps', stamps);
+    return false;
+  }
+  stamps.push(now);
+  Storage.set('apiCallTimestamps', stamps);
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Gemini API呼び出し                                                  */
+/* ------------------------------------------------------------------ */
+
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+function geminiEndpoint(apiKey) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
+const SCHEDULE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply: { type: 'STRING' },
+    suggestions: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          startTime: { type: 'STRING' },
+          endTime: { type: 'STRING' },
+          category: { type: 'STRING', enum: ['work', 'life', 'other'] },
+          memo: { type: 'STRING' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  required: ['reply'],
+};
+
+const MEAL_MENU_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply: { type: 'STRING' },
+    dishCandidates: { type: 'ARRAY', items: { type: 'STRING' } },
+  },
+  required: ['reply'],
+};
+
+const MEAL_STEPS_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply: { type: 'STRING' },
+    steps: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          description: { type: 'STRING' },
+          durationMinutes: { type: 'INTEGER' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  required: ['reply'],
+};
+
+/** 429エラーの種別を判定し、案内メッセージを返す（設計書8.3） */
+function describeGeminiError(err) {
+  if (err && err.status === 429) {
+    const body = (err.body || '').toLowerCase();
+    if (body.includes('perday') || body.includes('daily') || body.includes('per_day') || body.includes('quota')) {
+      return '1日あたりの利用上限に達したようです。しばらく時間をおくか、明日また試してみてください。';
+    }
+    return '1分あたりの利用回数が多くなっています。少し時間をおいてから、もう一度送信してください。';
+  }
+  if (err && err.status === 400) {
+    return 'APIキーが正しく認識されませんでした。設定画面でGemini APIキーを確認してください。';
+  }
+  if (err && err.status === 403) {
+    return 'このAPIキーではリクエストが許可されませんでした。設定画面でAPIキーを確認してください。';
+  }
+  return '通信中にエラーが発生しました。電波状況を確認して、もう一度お試しください。';
+}
+
+/**
+ * Gemini APIを呼び出す。応答が MAX_TOKENS で打ち切られた場合は、
+ * 出力上限を増やして1回だけ自動的に再試行する（設計書8.3）。
+ */
+async function callGemini({ apiKey, systemInstruction, history, responseSchema }) {
+  const contents = history.map((h) => ({
+    role: h.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: h.text }],
+  }));
+
+  let maxOutputTokens = 1024;
+  let lastText = '';
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(geminiEndpoint(apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+          maxOutputTokens,
+          responseMimeType: 'application/json',
+          responseSchema,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      const err = new Error(`gemini_error_${res.status}`);
+      err.status = res.status;
+      err.body = errBody;
+      throw err;
+    }
+
+    const data = await res.json();
+    const candidate = data.candidates && data.candidates[0];
+    const finishReason = candidate && candidate.finishReason;
+    const text =
+      (candidate && candidate.content && candidate.content.parts && candidate.content.parts.map((p) => p.text || '').join('')) ||
+      '';
+    lastText = text;
+
+    if (finishReason === 'MAX_TOKENS' && attempt === 0) {
+      maxOutputTokens = Math.min(maxOutputTokens * 3, 4096);
+      continue;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { reply: text || '（応答をうまく読み取れませんでした。もう一度お試しください）' };
+    }
+  }
+
+  try {
+    return JSON.parse(lastText);
+  } catch (e) {
+    return { reply: '応答が長くなりすぎたため、途中で打ち切られました。もう少し短く相談してみてください。' };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* システムプロンプト（対象日の予定・食材メモ等をコンテキストとして含める）           */
+/* ------------------------------------------------------------------ */
+
+function buildScheduleSystemPrompt(date) {
+  const events = Storage.Collection.filter('events', (e) => e.date === date).sort((a, b) =>
+    (a.startTime || '').localeCompare(b.startTime || '')
+  );
+  const eventLines = events.length ? events.map((e) => `- ${e.startTime || '未定'} ${e.title}`).join('\n') : '（まだ予定はありません）';
+  return [
+    'あなたは「Daily Planner AI」という日本語アプリの、予定作成を手伝うアシスタントです。',
+    `相談対象の日付: ${date}`,
+    'ユーザーとの会話を通じて、必要になった時だけ具体的なタスク案をsuggestionsに入れてください。',
+    '雑談段階や、時刻・内容がまだ曖昧な段階ではsuggestionsは空配列のままにしてください。',
+    'startTime/endTimeは "HH:MM" の24時間表記。不明な場合は空文字のままにしてください。',
+    'categoryは "work"（仕事）"life"（生活）"other"（その他）のいずれかにしてください。',
+    'この日の既存の予定:',
+    eventLines,
+    '返答は必ず親しみやすい日本語の文章（reply）にしてください。',
+  ].join('\n');
+}
+
+function buildMealMenuSystemPrompt(date) {
+  const ingredients = Storage.Collection.all('ingredients');
+  const ingLines = ingredients.length
+    ? ingredients.map((i) => `- ${i.name}${i.memo ? `（${i.memo}）` : ''}［優先度:${i.priority || 'normal'}］`).join('\n')
+    : '（食材メモは登録されていません）';
+  const plan = window.MealPlanEditor.getMealPlan(date);
+  const existingDishes = plan && plan.dishes && plan.dishes.length ? plan.dishes.join('、') : 'まだ決まっていません';
+  return [
+    'あなたは「Daily Planner AI」という日本語アプリの、献立（作る料理）決めを手伝うアシスタントです。',
+    `相談対象の日付: ${date}`,
+    '登録されている食材メモ（優先度が高いものを優先的に使うとよい）:',
+    ingLines,
+    `現在の候補メニュー: ${existingDishes}`,
+    'ユーザーとの相談を通じて、作る料理名の候補が具体的に固まったときだけdishCandidatesに料理名のみを入れてください。',
+    '雑談段階や候補がまだ曖昧な段階ではdishCandidatesは空配列のままにしてください。',
+    '分量や作り方はここでは書かず、料理名だけを入れてください（作り方は次の段階で相談します）。',
+    '返答は必ず親しみやすい日本語の文章（reply）にしてください。',
+  ].join('\n');
+}
+
+function buildMealStepsSystemPrompt(date) {
+  const plan = window.MealPlanEditor.getMealPlan(date);
+  const dishes = plan && plan.dishes ? plan.dishes.join('、') : '';
+  return [
+    'あなたは「Daily Planner AI」という日本語アプリの、調理の段取り作成を手伝うアシスタントです。',
+    `相談対象の日付: ${date}`,
+    `確定しているメニュー: ${dishes}`,
+    'これらの料理を並行して効率よく作るための、作業単位の段取り(steps)を組み立ててください。',
+    '特定の1料理だけに紐づけず、「ご飯を炊いている間に野菜を切る」のように複数の料理をまたぐ作業単位でまとめてください。',
+    '各stepには title（短い見出し）、description（具体的な作業内容）、durationMinutes（所要時間の目安・整数の分）を入れてください。',
+    'stepsは実際に作業する順番に並べてください。',
+    '返答は必ず親しみやすい日本語の文章（reply）にしてください。',
+  ].join('\n');
+}
+
+/** 手動フォールバック用：APIが使えない時に、Gemini公式アプリへコピペで頼むためのプロンプト文を作る */
+function buildManualPromptText(mode, date, historyWithLatestUser) {
+  const header =
+    mode === 'meal'
+      ? `${date}の献立について、次の会話の続きとして自然に返信してください。`
+      : `${date}の予定について、次の会話の続きとして自然に返信してください。`;
+  const convo = historyWithLatestUser.map((h) => `${h.role === 'user' ? 'わたし' : 'AI'}: ${h.text}`).join('\n');
+  return `${header}\n\n${convo}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI本体                                                              */
+/* ------------------------------------------------------------------ */
+
+function emptyHint(mode) {
+  if (mode === 'meal') {
+    return `
+      <div class="empty-state">
+        <div class="empty-state__motif">🍳</div>
+        <p class="empty-state__text">今日/明日、何を作りたいか話しかけてみましょう。<br>食材メモも参考にAIがメニュー案を出します。</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="empty-state">
+      <div class="empty-state__motif">🗓️</div>
+      <p class="empty-state__text">今日/明日の予定を相談してみましょう。<br>内容が固まったら、そのままタイムラインに反映できます。</p>
+    </div>
+  `;
+}
+
+function open(mode, target) {
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+  const date = DateUtils.resolveTarget(target);
+  const state = { sending: false };
+
+  function mealPhase() {
+    const plan = window.MealPlanEditor.getMealPlan(date);
+    if (!plan || !plan.menuConfirmed) return 'menu';
+    if (!plan.steps || plan.steps.length === 0) return 'steps';
+    return 'done';
+  }
+
+  function renderSuggestionCard(s) {
+    const timeLabel = s.startTime ? s.startTime + (s.endTime ? `〜${s.endTime}` : '') : '時刻未定';
+    if (s.status === 'applied') {
+      return `
+        <div class="chat-suggest-card">
+          <div class="chat-suggest-card__title">${escapeHtml(s.title)}</div>
+          <div class="chat-suggest-card__time">${escapeHtml(timeLabel)}</div>
+          <div class="chat-suggest-card__status">反映済み</div>
+        </div>
+      `;
+    }
+    if (s.status === 'dismissed') {
+      return `
+        <div class="chat-suggest-card is-dismissed">
+          <div class="chat-suggest-card__title">${escapeHtml(s.title)}</div>
+          <div class="chat-suggest-card__status">見送りました</div>
+        </div>
+      `;
+    }
+    return `
+      <div class="chat-suggest-card">
+        <div class="chat-suggest-card__title">${escapeHtml(s.title)}</div>
+        <div class="chat-suggest-card__time">${escapeHtml(timeLabel)}</div>
+        <div class="chat-suggest-card__actions">
+          <button type="button" class="btn btn--primary btn--sm chat-apply-suggest" data-suggest-id="${s.id}">反映する</button>
+          <button type="button" class="btn btn--outline btn--sm chat-dismiss-suggest" data-suggest-id="${s.id}">反映しない</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMessage(m, suggestions) {
+    if (m.role === 'user') {
+      return `<div class="chat-bubble-row chat-bubble-row--user"><div class="chat-bubble chat-bubble--user">${escapeHtml(
+        m.text
+      ).replace(/\n/g, '<br>')}</div></div>`;
+    }
+    let extra = '';
+    if (m.dishCandidates && m.dishCandidates.length > 0) {
+      extra += `
+        <div class="chat-suggest-card chat-suggest-card--meal">
+          <div class="chat-suggest-card__label">候補メニュー</div>
+          <div class="chat-suggest-card__dishes">${escapeHtml(m.dishCandidates.join('、'))}</div>
+          <button type="button" class="btn btn--meal-primary btn--sm chat-confirm-menu" data-message-id="${m.id}">これで決定</button>
+        </div>
+      `;
+    }
+    if (mode === 'schedule') {
+      const related = suggestions.filter((s) => s.sourceMessageId === m.id);
+      extra += related.map((s) => renderSuggestionCard(s)).join('');
+    }
+    if (m.isFallback) {
+      extra += `<button type="button" class="chat-fallback" data-message-id="${m.id}">この内容をコピーしてGeminiアプリに貼り付ける</button>`;
+    }
+    return `
+      <div class="chat-bubble-row chat-bubble-row--ai">
+        <div class="chat-bubble chat-bubble--ai">${escapeHtml(m.text).replace(/\n/g, '<br>')}</div>
+      </div>
+      ${extra}
+    `;
+  }
+
+  function paint() {
+    const messages = getMessages(mode, date);
+    const suggestions = mode === 'schedule' ? getSuggestions(date) : [];
+    const phase = mode === 'meal' ? mealPhase() : null;
+
+    modalRoot.innerHTML = `
+      <div class="chat-overlay">
+        <div class="chat-header ${mode === 'meal' ? 'chat-header--meal' : ''}">
+          <button type="button" class="chat-header__close" id="chat-close" aria-label="閉じる">${Icons.close}</button>
+          <div class="chat-header__title">${mode === 'meal' ? '献立について相談' : '予定について相談'}</div>
+          ${mode === 'meal' ? `<button type="button" class="chat-header__reset" id="chat-reset">やり直す</button>` : `<span style="width:32px;"></span>`}
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          ${messages.length === 0 ? emptyHint(mode) : messages.map((m) => renderMessage(m, suggestions)).join('')}
+          ${
+            state.sending
+              ? `<div class="chat-bubble-row chat-bubble-row--ai"><div class="chat-bubble chat-bubble--ai chat-bubble--typing">…考え中</div></div>`
+              : ''
+          }
+        </div>
+        ${
+          mode === 'meal' && phase === 'steps'
+            ? `<div class="chat-quick-actions"><button type="button" class="btn btn--meal-primary btn--sm" id="chat-make-steps" ${state.sending ? 'disabled' : ''}>${Icons.chat} 段取りを作って</button></div>`
+            : ''
+        }
+        ${
+          mode === 'meal' && phase === 'done'
+            ? `<div class="chat-quick-actions"><button type="button" class="btn btn--meal-primary btn--sm" id="chat-view-timeline">タイムラインを見る</button></div>`
+            : ''
+        }
+        <div class="chat-input-bar">
+          <textarea id="chat-input" class="textarea chat-input-bar__textarea" rows="1" placeholder="${
+            mode === 'meal' ? '食べたい物や気分を伝えてみましょう' : '今日の予定について相談してみましょう'
+          }" ${state.sending ? 'disabled' : ''}></textarea>
+          <button type="button" class="chat-input-bar__send ${mode === 'meal' ? 'chat-input-bar__send--meal' : ''}" id="chat-send" aria-label="送信" ${state.sending ? 'disabled' : ''}>${Icons.send}</button>
+        </div>
+      </div>
+    `;
+    bind();
+    const messagesEl = modalRoot.querySelector('#chat-messages');
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function closeAndGoTo(routeKey) {
+    modalRoot.innerHTML = '';
+    window.location.hash = `#/${routeKey}`;
+    window.App.refresh();
+  }
+
+  async function runTurn({ userText, schema, systemInstruction, afterAssistant }) {
+    if (state.sending) return;
+    if (!checkAndRecordRateLimit()) {
+      window.App.toast('送信回数が多くなっています。少し時間をおいてからお試しください。');
+      return;
+    }
+    if (userText) addMessage(mode, date, 'user', userText);
+    state.sending = true;
+    paint();
+
+    try {
+      const apiKey = Storage.Settings.get().geminiApiKey;
+      const history = getMessages(mode, date).map((m) => ({ role: m.role, text: m.text }));
+      const result = await callGemini({ apiKey, systemInstruction, history, responseSchema: schema });
+      const aiMsg = addMessage(mode, date, 'assistant', result.reply || '…');
+      if (typeof afterAssistant === 'function') afterAssistant(result, aiMsg);
+    } catch (err) {
+      console.error('[chatPanel] gemini call failed', err);
+      const history = getMessages(mode, date).map((m) => ({ role: m.role, text: m.text }));
+      addMessage(mode, date, 'assistant', describeGeminiError(err), {
+        isFallback: true,
+        manualPromptText: buildManualPromptText(mode, date, history),
+      });
+    } finally {
+      state.sending = false;
+      paint();
+    }
+  }
+
+  function handleSend() {
+    const textarea = modalRoot.querySelector('#chat-input');
+    if (!textarea) return;
+    const text = textarea.value.trim();
+    if (!text) return;
+    textarea.value = '';
+
+    if (mode === 'schedule') {
+      runTurn({
+        userText: text,
+        schema: SCHEDULE_SCHEMA,
+        systemInstruction: buildScheduleSystemPrompt(date),
+        afterAssistant: (result, aiMsg) => {
+          if (Array.isArray(result.suggestions)) {
+            result.suggestions.forEach((sg) => {
+              if (sg && sg.title) addSuggestion(date, aiMsg.id, sg);
+            });
+          }
+        },
+      });
+    } else {
+      runTurn({
+        userText: text,
+        schema: MEAL_MENU_SCHEMA,
+        systemInstruction: buildMealMenuSystemPrompt(date),
+        afterAssistant: (result, aiMsg) => {
+          if (Array.isArray(result.dishCandidates) && result.dishCandidates.length > 0) {
+            Storage.Collection.update('messages', aiMsg.id, { dishCandidates: result.dishCandidates });
+          }
+        },
+      });
+    }
+  }
+
+  function handleMakeSteps() {
+    runTurn({
+      userText: '段取りを作って',
+      schema: MEAL_STEPS_SCHEMA,
+      systemInstruction: buildMealStepsSystemPrompt(date),
+      afterAssistant: (result) => {
+        if (Array.isArray(result.steps) && result.steps.length > 0) {
+          const newSteps = result.steps.map((s, i) => ({
+            id: IdGenerator.generateId('step'),
+            order: i + 1,
+            title: s.title || '',
+            description: s.description || '',
+            durationMinutes: typeof s.durationMinutes === 'number' ? s.durationMinutes : null,
+          }));
+          window.MealPlanEditor.saveMealPlan(date, { steps: newSteps });
+        }
+      },
+    });
+  }
+
+  function bind() {
+    modalRoot.querySelector('#chat-close').addEventListener('click', () => {
+      closeAndGoTo(mode === 'meal' ? 'meal' : 'schedule');
+    });
+
+    const resetBtn = modalRoot.querySelector('#chat-reset');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        const ok = window.confirm('この日の献立（メニュー・工程とも）と、ここでの会話履歴をすべて削除して最初からやり直します。よろしいですか？');
+        if (!ok) return;
+        resetMealChat(date);
+        window.App.toast('やり直しました');
+        paint();
+      });
+    }
+
+    const sendBtn = modalRoot.querySelector('#chat-send');
+    if (sendBtn) sendBtn.addEventListener('click', handleSend);
+
+    const textarea = modalRoot.querySelector('#chat-input');
+    if (textarea) {
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
+      });
+    }
+
+    const makeStepsBtn = modalRoot.querySelector('#chat-make-steps');
+    if (makeStepsBtn) makeStepsBtn.addEventListener('click', handleMakeSteps);
+
+    const viewTimelineBtn = modalRoot.querySelector('#chat-view-timeline');
+    if (viewTimelineBtn) viewTimelineBtn.addEventListener('click', () => closeAndGoTo('meal'));
+
+    modalRoot.querySelectorAll('.chat-confirm-menu').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const msg = Storage.Collection.find('messages', (m) => m.id === btn.dataset.messageId);
+        if (!msg || !msg.dishCandidates) return;
+        window.MealPlanEditor.saveMealPlan(date, { dishes: msg.dishCandidates, menuConfirmed: true });
+        window.App.toast('メニューを決定しました');
+        paint();
+      });
+    });
+
+    modalRoot.querySelectorAll('.chat-apply-suggest').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sug = Storage.Collection.find('suggestions', (s) => s.id === btn.dataset.suggestId);
+        if (!sug) return;
+        applySuggestion(sug);
+        window.App.toast('タイムラインに反映しました');
+        paint();
+      });
+    });
+
+    modalRoot.querySelectorAll('.chat-dismiss-suggest').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sug = Storage.Collection.find('suggestions', (s) => s.id === btn.dataset.suggestId);
+        if (!sug) return;
+        dismissSuggestion(sug);
+        paint();
+      });
+    });
+
+    modalRoot.querySelectorAll('.chat-fallback').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const msg = Storage.Collection.find('messages', (m) => m.id === btn.dataset.messageId);
+        if (!msg || !msg.manualPromptText) return;
+        try {
+          await navigator.clipboard.writeText(msg.manualPromptText);
+          window.App.toast('コピーしました。Geminiアプリに貼り付けてご利用ください。');
+        } catch (e) {
+          window.App.toast('コピーに失敗しました。手動で選択してコピーしてください。');
+        }
+      });
+    });
+  }
+
+  paint();
+}
+
+window.ChatPanel = { open };
+
+})();
+
+
+/**
  * app.js
  * 初期化・画面切り替え（ハッシュルーター）・下部ナビゲーションの描画。
- * チャット（chatPanel.js）とタスク編集（taskEditor.js）は次フェーズで接続する。
- * このフェーズでは openChat / openTaskEditor はプレースホルダーとして動作する。
  */
 
 const NAV_ITEMS = [
@@ -2416,13 +3233,14 @@ function toast(message) {
   toast._t = setTimeout(() => el.classList.remove('is-visible'), 2200);
 }
 
-/** チャットを開く。予定/献立モードは呼び出し元で固定され、履歴は独立管理される（次フェーズで実装） */
+/** チャットを開く。予定/献立モードは呼び出し元で固定され、履歴は独立管理される */
 function openChat(mode, target) {
   if (!Storage.Settings.hasApiKey()) {
     toast('AIチャットを使うには設定画面でGemini APIキーを登録してください');
     return;
   }
-  toast(`${mode === 'meal' ? '献立' : '予定'}チャットは次のステップで実装します`);
+  if (!window.ChatPanel) return;
+  window.ChatPanel.open(mode, target);
 }
 
 /** 手動追加・編集モーダルを開く。options: { mode: 'schedule'|'meal', date, taskId? } */
@@ -2451,7 +3269,14 @@ window.addEventListener('hashchange', () => {
   paintRoute();
 });
 
-window.App = { start, toast, openChat, openTaskEditor, navigate: (k) => (window.location.hash = `#/${k}`) };
+window.App = {
+  start,
+  toast,
+  openChat,
+  openTaskEditor,
+  navigate: (k) => (window.location.hash = `#/${k}`),
+  refresh: () => paintRoute(),
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   window.App.start();
