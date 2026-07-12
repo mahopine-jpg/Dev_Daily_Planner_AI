@@ -245,7 +245,7 @@ a { color: var(--primary); }
   box-shadow: 0 6px 20px rgba(232, 147, 94, 0.32);
 }
 
-.fab--meal {
+.fab.fab--meal {
   background: var(--cat-meal);
   box-shadow: 0 6px 20px rgba(232, 147, 94, 0.32);
 }
@@ -361,7 +361,7 @@ a { color: var(--primary); }
   border: 1.5px solid var(--primary-soft);
   border-radius: var(--radius-md);
   padding: 12px 14px;
-  font-size: 15px;
+  font-size: 16px; /* iOS Safariは16px未満のフォーカス時に自動ズームするため、16px以上を維持する（レイアウト崩れ・ボタン押下不能の原因になる） */
   color: var(--ink);
   width: 100%;
   min-width: 0; /* flexコンテナ(.field等)の子要素になった際、内容量に応じて広がってしまう既定挙動(min-width:auto)を無効化する */
@@ -372,9 +372,11 @@ a { color: var(--primary); }
  * iOS Safariの input[type="time"] / input[type="date"] は、ネイティブのピッカーUIが
  * 独自の最小幅を持っており、上記の min-width:0 だけでは幅の指定(width:100%)を
  * 無視して横にはみ出すことがある。type別に明示的に上書きして確実に幅を制約する。
+ * display:block も明示し、インライン要素としての幅計算の揺れを避ける。
  */
 input[type="time"],
 input[type="date"] {
+  display: block;
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100%;
@@ -435,6 +437,8 @@ input[type="date"] {
   border-radius: 24px 24px 0 0;
   max-height: 88vh;
   overflow-y: auto;
+  overflow-x: hidden; /* 内部要素(time input等)が万一はみ出しても、シート自体は横スクロールさせない保険 */
+  box-sizing: border-box;
   padding: 10px 20px calc(24px + env(safe-area-inset-bottom, 0));
   animation: sheet-up 0.22s ease-out;
 }
@@ -679,6 +683,20 @@ input[type="date"] {
   opacity: 0.3;
   pointer-events: none;
 }
+
+/* --- 食材メモの優先度バッジ --- */
+.priority-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  margin-bottom: 4px;
+}
+
+.priority-badge--high { background: rgba(194, 102, 95, 0.15); color: var(--danger); }
+.priority-badge--normal { background: var(--primary-pale); color: var(--primary-dark); }
+.priority-badge--low { background: var(--surface-alt); color: var(--ink-faint); }
 
 /* --- Utility --- */
 .u-flex { display: flex; }
@@ -1167,6 +1185,7 @@ function renderTimeline(events) {
               <div class="timeline__card card timeline__card--${badge.cls}">
                 <div class="timeline__badge">${badge.label}</div>
                 <div class="timeline__title">${escapeHtml(e.title)}</div>
+                ${e.memo ? `<div class="timeline__meta">${escapeHtml(e.memo)}</div>` : ''}
               </div>
             </div>
           `;
@@ -1285,7 +1304,7 @@ function renderSteps(steps) {
   if (steps.length === 0) {
     return `
       <div class="empty-state empty-state--meal">
-        <p class="empty-state__text">工程がまだありません。<br>「工程を追加」から段取りを組み立てましょう。</p>
+        <p class="empty-state__text">工程がまだありません。<br>右下の＋から段取りを組み立てましょう。</p>
       </div>
     `;
   }
@@ -1325,16 +1344,14 @@ function renderMealTab(root) {
           <button type="button" id="edit-menu" class="meal-plan-header__edit">${Icons.pencil} メニューを編集</button>
         </div>
         ${renderSteps(steps)}
-        <button type="button" id="add-step" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 工程を追加</button>
         `
             : `
         <div class="empty-state empty-state--meal">
           <div class="empty-state__motif">🍚</div>
           <p class="empty-state__text">
             まだ献立が決まっていません。<br>
-            「献立について相談」するか、メニューを手動で決めてみましょう。
+            「献立について相談」するか、右下の＋からメニューを決めてみましょう。
           </p>
-          <button type="button" id="set-menu" class="btn btn--meal-primary u-mt-16">メニューを決める</button>
         </div>
         `
         }
@@ -1342,7 +1359,7 @@ function renderMealTab(root) {
           ${Icons.chat} 献立について相談
         </button>
       </div>
-      ${hasMenu ? `<button class="fab fab--meal" id="add-step-fab" aria-label="工程を追加">${Icons.plus}</button>` : ''}
+      <button class="fab fab--meal" id="meal-fab" aria-label="${hasMenu ? '工程を追加' : 'メニューを決める'}">${Icons.plus}</button>
     `;
 
     root.querySelectorAll('.segmented__option').forEach((btn) => {
@@ -1356,17 +1373,15 @@ function renderMealTab(root) {
       window.App.openChat('meal', state.target);
     });
 
-    const setMenuBtn = root.querySelector('#set-menu');
-    if (setMenuBtn) setMenuBtn.addEventListener('click', () => window.MealPlanEditor.openDishesEditor(dateStr, paint));
-
     const editMenuBtn = root.querySelector('#edit-menu');
     if (editMenuBtn) editMenuBtn.addEventListener('click', () => window.MealPlanEditor.openDishesEditor(dateStr, paint));
 
-    const addStepBtn = root.querySelector('#add-step');
-    const addStepFab = root.querySelector('#add-step-fab');
-    [addStepBtn, addStepFab].forEach((btn) => {
-      if (!btn) return;
-      btn.addEventListener('click', () => window.MealPlanEditor.openStepEditor(dateStr, null, paint));
+    root.querySelector('#meal-fab').addEventListener('click', () => {
+      if (hasMenu) {
+        window.MealPlanEditor.openStepEditor(dateStr, null, paint);
+      } else {
+        window.MealPlanEditor.openDishesEditor(dateStr, paint);
+      }
     });
 
     root.querySelectorAll('.step-card').forEach((card) => {
@@ -1429,7 +1444,10 @@ function openIngredientModal(existing, onSaved) {
   const state = {
     name: existing ? existing.name || '' : '',
     memo: existing ? existing.memo || '' : '',
+    priority: existing && existing.priority ? existing.priority : 'normal',
   };
+
+  const PRIORITY_LABELS = { high: '高', normal: '中', low: '低' };
 
   function paint() {
     modalRoot.innerHTML = `
@@ -1448,6 +1466,18 @@ function openIngredientModal(existing, onSaved) {
             <label class="field__label" for="ing-memo">メモ（任意）</label>
             <input id="ing-memo" class="input" type="text" value="${escapeHtml(state.memo)}" placeholder="例：賞味期限が近い" />
           </div>
+          <div class="field">
+            <label class="field__label">優先度</label>
+            <div class="segmented">
+              ${Object.keys(PRIORITY_LABELS)
+                .map(
+                  (key) => `
+                <button type="button" class="segmented__option priority-option ${state.priority === key ? 'is-selected' : ''}" data-priority="${key}">${PRIORITY_LABELS[key]}</button>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
           <div class="u-flex u-gap-8 u-mt-16">
             ${existing ? `<button id="ing-delete" class="btn btn--danger">削除する</button>` : ''}
             <button id="ing-save" class="btn btn--primary btn--block">保存する</button>
@@ -1465,6 +1495,12 @@ function openIngredientModal(existing, onSaved) {
     });
     modalRoot.querySelector('#ing-memo').addEventListener('input', (e) => {
       state.memo = e.target.value;
+    });
+    modalRoot.querySelectorAll('.priority-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.priority = btn.dataset.priority;
+        paint();
+      });
     });
 
     if (existing) {
@@ -1488,6 +1524,7 @@ function openIngredientModal(existing, onSaved) {
         Storage.Collection.update('ingredients', existing.id, {
           name,
           memo: state.memo.trim(),
+          priority: state.priority,
           updatedAt: now,
         });
         window.App.toast('更新しました');
@@ -1496,6 +1533,7 @@ function openIngredientModal(existing, onSaved) {
           id: IdGenerator.generateId('ingredient'),
           name,
           memo: state.memo.trim(),
+          priority: state.priority,
           createdAt: now,
         });
         window.App.toast('追加しました');
@@ -1512,8 +1550,53 @@ function openIngredientModal(existing, onSaved) {
   paint();
 }
 
-function renderIngredients(root) {
+const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
+const PRIORITY_LABELS_LIST = { high: '優先度：高', normal: '優先度：中', low: '優先度：低' };
+
+/**
+ * 一覧の並び順キャッシュ。
+ * 優先度でソートするタイミングを「タブを開いた瞬間」だけに限定するための仕組み。
+ * タブを開いている間に優先度を編集・削除しても、この配列（IDの並び）は更新しない。
+ * こうしないと、優先度ボタンを押すたびに一覧全体が並び替わり、カードの位置が動いて
+ * 連続で別のカードをタップしづらくなる（旧アプリで指摘済みの不具合）。
+ * タブを離れて戻ってきたとき（route再描画時）にのみ null にリセットし、再ソートする。
+ */
+let ingredientOrderCache = null;
+
+function computeSortedIds(items) {
+  return [...items]
+    .sort((a, b) => {
+      const pa = PRIORITY_ORDER[a.priority] ?? PRIORITY_ORDER.normal;
+      const pb = PRIORITY_ORDER[b.priority] ?? PRIORITY_ORDER.normal;
+      if (pa !== pb) return pa - pb;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    })
+    .map((i) => i.id);
+}
+
+/**
+ * @param {boolean} forceResort - true: 優先度順に並び替え直す（タブへの新規遷移時）
+ *                                false: 既存の並び順を維持したまま内容だけ更新する（タブ内での編集・削除後）
+ */
+function renderIngredients(root, forceResort = true) {
   const items = Storage.Collection.all('ingredients');
+
+  if (forceResort || !ingredientOrderCache) {
+    ingredientOrderCache = computeSortedIds(items);
+  } else {
+    // 削除された食材をキャッシュの並びから除外
+    const existingIds = new Set(items.map((i) => i.id));
+    ingredientOrderCache = ingredientOrderCache.filter((id) => existingIds.has(id));
+    // 新規追加された食材は、優先度順で並べた上で末尾に追加する（既存カードの位置は変えない）
+    const knownIds = new Set(ingredientOrderCache);
+    const newItems = items.filter((i) => !knownIds.has(i.id));
+    if (newItems.length > 0) {
+      ingredientOrderCache = [...ingredientOrderCache, ...computeSortedIds(newItems)];
+    }
+  }
+
+  const itemsById = new Map(items.map((i) => [i.id, i]));
+  const orderedItems = ingredientOrderCache.map((id) => itemsById.get(id)).filter(Boolean);
 
   root.innerHTML = `
     <div class="app-header">
@@ -1522,22 +1605,24 @@ function renderIngredients(root) {
     </div>
     <div class="screen-body screen-body--fab-spacing">
       ${
-        items.length === 0
+        orderedItems.length === 0
           ? `<div class="empty-state">
                <div class="empty-state__motif">🥕</div>
                <p class="empty-state__text">使いたい食材をメモしておくと、献立の相談がスムーズになります。</p>
              </div>`
-          : `<div class="u-flex-col u-gap-12">${items
-              .map(
-                (i) => `
+          : `<div class="u-flex-col u-gap-12">${orderedItems
+              .map((i) => {
+                const priority = i.priority && PRIORITY_LABELS_LIST[i.priority] ? i.priority : 'normal';
+                return `
               <div class="card u-flex u-between u-center" data-ingredient-id="${i.id}" style="cursor:pointer;">
                 <div>
+                  <div class="priority-badge priority-badge--${priority}">${PRIORITY_LABELS_LIST[priority]}</div>
                   <div class="timeline__title">${escapeHtml(i.name)}</div>
                   ${i.memo ? `<div class="timeline__meta">${escapeHtml(i.memo)}</div>` : ''}
                 </div>
                 <button class="btn btn--danger btn--sm ingredient-delete" data-ingredient-id="${i.id}" aria-label="削除">${Icons.close}</button>
-              </div>`
-              )
+              </div>`;
+              })
               .join('')}</div>`
       }
     </div>
@@ -1545,14 +1630,14 @@ function renderIngredients(root) {
   `;
 
   root.querySelector('#add-ingredient').addEventListener('click', () => {
-    openIngredientModal(null, () => renderIngredients(root));
+    openIngredientModal(null, () => renderIngredients(root, false));
   });
 
   root.querySelectorAll('[data-ingredient-id]').forEach((el) => {
     if (!el.classList.contains('ingredient-delete')) {
       el.addEventListener('click', () => {
         const item = Storage.Collection.find('ingredients', (i) => i.id === el.dataset.ingredientId);
-        openIngredientModal(item, () => renderIngredients(root));
+        openIngredientModal(item, () => renderIngredients(root, false));
       });
     }
   });
@@ -1564,7 +1649,7 @@ function renderIngredients(root) {
       if (!ok) return;
       Storage.Collection.remove('ingredients', btn.dataset.ingredientId);
       window.App.toast('削除しました');
-      renderIngredients(root);
+      renderIngredients(root, false);
     });
   });
 }
@@ -1930,6 +2015,12 @@ function saveMealPlan(dateStr, patch) {
   return getMealPlan(dateStr);
 }
 
+/** 対象日の献立プラン（メニュー・工程とも）を丸ごと削除し、未着手の状態に戻す */
+function clearMealPlan(dateStr) {
+  const plan = getMealPlan(dateStr);
+  if (plan) Storage.Collection.remove('mealPlans', plan.id);
+}
+
 function removeStep(dateStr, stepId) {
   const plan = ensureMealPlan(dateStr);
   const steps = plan.steps
@@ -1985,6 +2076,7 @@ function openDishesEditor(dateStr, onSaved) {
           </div>
           <button type="button" id="add-dish" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 料理を追加</button>
           <button id="dishes-save" class="btn btn--meal-primary btn--block u-mt-24">保存する</button>
+          ${plan.dishes.length > 0 || plan.steps.length > 0 ? `<button type="button" id="dishes-clear" class="btn btn--danger btn--block u-mt-16">献立をクリアする（メニュー・工程とも全て削除）</button>` : ''}
         </div>
       </div>
     `;
@@ -2015,13 +2107,24 @@ function openDishesEditor(dateStr, onSaved) {
     modalRoot.querySelector('#dishes-save').addEventListener('click', () => {
       const dishes = state.dishes.map((d) => d.trim()).filter((d) => d.length > 0);
       if (dishes.length === 0) {
-        window.App.toast('料理名を1つ以上入力してください');
+        window.App.toast('料理名を1つ以上入力してください（すべて削除したい場合は下の「献立をクリアする」をお使いください）');
         return;
       }
       saveMealPlan(dateStr, { dishes, menuConfirmed: true });
       window.App.toast('メニューを保存しました');
       close(true);
     });
+
+    const clearBtn = modalRoot.querySelector('#dishes-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        const ok = window.confirm('この日の献立（メニュー・工程とも）をすべて削除します。よろしいですか？');
+        if (!ok) return;
+        clearMealPlan(dateStr);
+        window.App.toast('献立をクリアしました');
+        close(true);
+      });
+    }
   }
 
   function close(shouldRefresh) {
@@ -2142,6 +2245,7 @@ window.MealPlanEditor = {
   getMealPlan,
   ensureMealPlan,
   saveMealPlan,
+  clearMealPlan,
   removeStep,
   moveStep,
   openDishesEditor,
