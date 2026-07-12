@@ -571,6 +571,115 @@ input[type="date"] {
   padding-bottom: calc(52px + 18px + 24px + var(--safe-bottom)); /* FABの高さ + 浮かせる距離 + 余裕 + セーフエリア */
 }
 
+/* --- 献立プラン：メニュー見出し（上部固定）＋工程タイムライン ---
+   固定ヘッダーは position:sticky のみで実装し、JSでの高さ測定・固定は行わない
+   （10章の教訓：iOS Safariのアドレスバー挙動とJS計測がズレて余白が残るバグを避けるため） */
+.meal-plan-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-cream);
+  padding: 4px 0 14px;
+  margin-bottom: 4px;
+}
+
+.meal-plan-header__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cat-meal);
+  margin-bottom: 4px;
+}
+
+.meal-plan-header__dishes {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.meal-plan-header__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cat-meal);
+}
+
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-card {
+  position: relative;
+  padding: 14px 44px 40px 14px;
+  border-left: 4px solid var(--cat-meal);
+  min-width: 0;
+}
+
+.step-card__duration {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--cat-meal);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  margin-bottom: 6px;
+}
+
+.step-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.step-card__description {
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.step-card__remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+}
+
+.step-card__order-controls {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.step-card__order-btn {
+  width: 30px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cat-meal);
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+}
+
+.step-card__order-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
 /* --- Utility --- */
 .u-flex { display: flex; }
 .u-flex-col { display: flex; flex-direction: column; }
@@ -791,7 +900,12 @@ function diaryIdForDate(dateStr) {
   return `DIARY-${dateStr.replace(/-/g, '')}`;
 }
 
-window.IdGenerator = { generateId, diaryIdForDate };
+/** 献立プランIDも日付そのもの（対象日1日につき1件のため） */
+function mealPlanIdForDate(dateStr) {
+  return `MEALPLAN-${dateStr.replace(/-/g, '')}`;
+}
+
+window.IdGenerator = { generateId, diaryIdForDate, mealPlanIdForDate };
 
 
 /**
@@ -883,6 +997,9 @@ const Icons = {
   eyeOff: svg(
     '<path d="M3 3l18 18M9.9 5.6A10.6 10.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a15.6 15.6 0 0 1-3.4 4.2M6.6 6.9C4 8.8 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.9 9.9 0 0 0 3.3-.6M9.9 12a2.8 2.8 0 0 0 4 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
   ),
+  arrowUp: svg('<path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  arrowDown: svg('<path d="M12 5v14M19 12l-7 7-7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  pencil: svg('<path d="M4 20h4L18.5 9.5a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4 15v5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'),
 };
 
 window.Icons = Icons;
@@ -979,10 +1096,11 @@ window.Screens.onboarding = renderOnboarding;
 function getEventsFor(dateStr) {
   // 基本スケジュール由来の当日インスタンスを未生成なら生成する
   ensureBaseScheduleInstances(dateStr);
-  return Storage.Collection.filter(
-    'events',
-    (e) => e.date === dateStr && e.category !== 'meal'
-  ).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+  // 献立は MEALPLAN として別コレクションで管理するため、ここでのフィルタは不要
+  // （2026-07-12: category:"meal" のEVTは廃止。旧テスト投入データが残っていても単に無視される）
+  return Storage.Collection.filter('events', (e) => e.date === dateStr).sort((a, b) =>
+    (a.startTime || '').localeCompare(b.startTime || '')
+  );
 }
 
 function ensureBaseScheduleInstances(dateStr) {
@@ -1010,7 +1128,6 @@ function ensureBaseScheduleInstances(dateStr) {
       sourceSuggestId: null,
       category: tpl.category || 'life',
       memo: '',
-      recipe: null,
       rescheduleHistory: [],
       status: 'planned',
       createdAt: now,
@@ -1127,55 +1244,56 @@ window.Screens.schedule = renderScheduleTab;
 
 /**
  * mealTab.js
- * 「献立タブ」：その日(今日/明日)の献立タスクのみを表示する。
- * FR-0 / FR-2 / FR-5 に対応。
+ * 「献立タブ」：その日(今日/明日)の献立プラン（MEALPLAN）を表示する。
+ * FR-0 / FR-2 / FR-5 / FR-6 に対応（2026-07-12 献立モデル再設計版）。
+ *
+ * 「1料理＝1カード」ではなく、上部固定のメニュー見出し（dishes）＋
+ * 複数料理をまたいだ工程タイムライン（steps）という構成にする。
+ * 工程の削除（×ボタン）・並び替え（上へ/下へボタン）はこの画面上で直接行い、
+ * メニュー編集・工程の追加/編集は mealPlanEditor.js のシートで行う。
  */
 
 (function () {
   'use strict';
 
-function getMealsFor(dateStr) {
-  return Storage.Collection.filter(
-    'events',
-    (e) => e.date === dateStr && e.category === 'meal'
-  ).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
-}
-
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str == null ? '' : str;
   return div.innerHTML;
 }
 
-function renderMealCard(e) {
-  const stepCount = e.recipe && e.recipe.steps ? e.recipe.steps.length : 0;
-  const badgeLabel = e.sourceType === 'ai_chat' ? 'AI相談で組んだ献立' : e.sourceType === 'manual' ? '手動追加' : '献立';
+function getMealPlan(dateStr) {
+  return window.MealPlanEditor.getMealPlan(dateStr);
+}
+
+function renderStepCard(step, index, total) {
   return `
-    <div class="timeline__row" data-task-id="${e.id}" style="cursor:pointer;">
-      <div class="timeline__time">${e.startTime || '--:--'}</div>
-      <div class="timeline__node"></div>
-      <div class="timeline__card card timeline__card--is-meal">
-        <div class="timeline__badge">${badgeLabel}</div>
-        <div class="timeline__title">${escapeHtml(e.title)}</div>
-        ${stepCount > 0 ? `<div class="timeline__meta">調理手順 全${stepCount}ステップ</div>` : ''}
+    <div class="card step-card" data-step-id="${step.id}">
+      <button type="button" class="step-card__remove" aria-label="この工程を削除">${Icons.close}</button>
+      <div class="step-card__duration">${step.durationMinutes != null && step.durationMinutes !== '' ? step.durationMinutes + '分' : '--分'}</div>
+      <div class="step-card__title">${escapeHtml(step.title)}</div>
+      ${step.description ? `<div class="step-card__description">${escapeHtml(step.description)}</div>` : ''}
+      <div class="step-card__order-controls">
+        <button type="button" class="step-card__order-btn" data-direction="up" aria-label="上へ" ${index === 0 ? 'disabled' : ''}>${Icons.arrowUp}</button>
+        <button type="button" class="step-card__order-btn" data-direction="down" aria-label="下へ" ${index === total - 1 ? 'disabled' : ''}>${Icons.arrowDown}</button>
       </div>
     </div>
   `;
 }
 
-function renderTimeline(meals) {
-  if (meals.length === 0) {
+function renderSteps(steps) {
+  if (steps.length === 0) {
     return `
       <div class="empty-state empty-state--meal">
-        <div class="empty-state__motif">🍚</div>
-        <p class="empty-state__text">
-          まだ献立が決まっていません。<br>
-          「献立について相談」するか、右下の＋から追加してみましょう。
-        </p>
+        <p class="empty-state__text">工程がまだありません。<br>「工程を追加」から段取りを組み立てましょう。</p>
       </div>
     `;
   }
-  return `<div class="timeline">${meals.map(renderMealCard).join('')}</div>`;
+  return `
+    <div class="step-list">
+      ${steps.map((s, i) => renderStepCard(s, i, steps.length)).join('')}
+    </div>
+  `;
 }
 
 function renderMealTab(root) {
@@ -1183,7 +1301,10 @@ function renderMealTab(root) {
 
   function paint() {
     const dateStr = DateUtils.resolveTarget(state.target);
-    const meals = getMealsFor(dateStr);
+    const plan = getMealPlan(dateStr);
+    const dishes = plan && plan.menuConfirmed ? plan.dishes : [];
+    const steps = plan ? [...plan.steps].sort((a, b) => a.order - b.order) : [];
+    const hasMenu = dishes.length > 0;
 
     root.innerHTML = `
       <div class="app-header app-header--meal">
@@ -1195,12 +1316,33 @@ function renderMealTab(root) {
         </div>
       </div>
       <div class="screen-body screen-body--fab-spacing">
-        ${renderTimeline(meals)}
-        <button id="consult-meal" class="btn btn--meal-primary btn--block u-mt-24">
+        ${
+          hasMenu
+            ? `
+        <div class="meal-plan-header">
+          <div class="meal-plan-header__label">今日の献立</div>
+          <div class="meal-plan-header__dishes">${escapeHtml(dishes.join('、'))}</div>
+          <button type="button" id="edit-menu" class="meal-plan-header__edit">${Icons.pencil} メニューを編集</button>
+        </div>
+        ${renderSteps(steps)}
+        <button type="button" id="add-step" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 工程を追加</button>
+        `
+            : `
+        <div class="empty-state empty-state--meal">
+          <div class="empty-state__motif">🍚</div>
+          <p class="empty-state__text">
+            まだ献立が決まっていません。<br>
+            「献立について相談」するか、メニューを手動で決めてみましょう。
+          </p>
+          <button type="button" id="set-menu" class="btn btn--meal-primary u-mt-16">メニューを決める</button>
+        </div>
+        `
+        }
+        <button type="button" id="consult-meal" class="btn btn--meal-primary btn--block u-mt-24">
           ${Icons.chat} 献立について相談
         </button>
       </div>
-      <button class="fab fab--meal" id="add-meal-task" aria-label="献立を追加">${Icons.plus}</button>
+      ${hasMenu ? `<button class="fab fab--meal" id="add-step-fab" aria-label="工程を追加">${Icons.plus}</button>` : ''}
     `;
 
     root.querySelectorAll('.segmented__option').forEach((btn) => {
@@ -1214,17 +1356,43 @@ function renderMealTab(root) {
       window.App.openChat('meal', state.target);
     });
 
-    root.querySelector('#add-meal-task').addEventListener('click', () => {
-      window.App.openTaskEditor({ mode: 'meal', date: DateUtils.resolveTarget(state.target) });
+    const setMenuBtn = root.querySelector('#set-menu');
+    if (setMenuBtn) setMenuBtn.addEventListener('click', () => window.MealPlanEditor.openDishesEditor(dateStr, paint));
+
+    const editMenuBtn = root.querySelector('#edit-menu');
+    if (editMenuBtn) editMenuBtn.addEventListener('click', () => window.MealPlanEditor.openDishesEditor(dateStr, paint));
+
+    const addStepBtn = root.querySelector('#add-step');
+    const addStepFab = root.querySelector('#add-step-fab');
+    [addStepBtn, addStepFab].forEach((btn) => {
+      if (!btn) return;
+      btn.addEventListener('click', () => window.MealPlanEditor.openStepEditor(dateStr, null, paint));
     });
 
-    root.querySelectorAll('.timeline__row').forEach((row) => {
-      row.addEventListener('click', () => {
-        window.App.openTaskEditor({
-          mode: 'meal',
-          date: DateUtils.resolveTarget(state.target),
-          taskId: row.dataset.taskId,
-        });
+    root.querySelectorAll('.step-card').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.step-card__remove') || e.target.closest('.step-card__order-btn')) return;
+        window.MealPlanEditor.openStepEditor(dateStr, card.dataset.stepId, paint);
+      });
+    });
+
+    root.querySelectorAll('.step-card__remove').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const card = e.currentTarget.closest('.step-card');
+        const ok = window.confirm('この工程を削除します。よろしいですか？');
+        if (!ok) return;
+        window.MealPlanEditor.removeStep(dateStr, card.dataset.stepId);
+        paint();
+      });
+    });
+
+    root.querySelectorAll('.step-card__order-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const card = e.currentTarget.closest('.step-card');
+        window.MealPlanEditor.moveStep(dateStr, card.dataset.stepId, e.currentTarget.dataset.direction);
+        paint();
       });
     });
   }
@@ -1572,9 +1740,8 @@ window.Screens.settings = renderSettings;
 
 /**
  * taskEditor.js
- * 予定タブ／献立タブの「＋」ボタン、および既存タスクのタップから開く
- * 追加・編集モーダル（ボトムシート）。FR-6対応。
- * 献立モード（isMeal）のときのみ、調理手順（recipe.steps）の編集UIを表示する。
+ * 予定タブの「＋」ボタン、および既存タスクのタップから開く追加・編集モーダル（ボトムシート）。FR-6対応。
+ * 献立プランの編集は mealPlanEditor.js に分離した（2026-07-12、献立モデル再設計に伴う変更）。
  * リスケ（FR-7・rescheduleHistoryの記録）は次フェーズで対応する。
  */
 
@@ -1587,29 +1754,14 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function renderStepRow(step, index) {
-  return `
-    <div class="step-row u-flex u-gap-8 u-mt-16" data-step-index="${index}">
-      <input class="input step-text" type="text" placeholder="手順（例：材料を切る）" value="${escapeHtml(step.text)}" style="flex:1;" />
-      <input class="input step-duration" type="number" min="0" inputmode="numeric" placeholder="分" value="${step.durationMinutes ?? ''}" style="width:64px;" />
-      <button type="button" class="btn btn--danger btn--sm remove-step" aria-label="この手順を削除">${Icons.close}</button>
-    </div>
-  `;
-}
-
 function renderTaskEditor(root, options) {
-  const { mode, date, taskId } = options;
-  const isMeal = mode === 'meal';
+  const { date, taskId } = options;
   const existing = taskId ? Storage.Collection.find('events', (e) => e.id === taskId) : null;
 
   const state = {
     title: existing ? existing.title || '' : '',
     startTime: existing ? existing.startTime || '' : '',
     memo: existing ? existing.memo || '' : '',
-    steps:
-      existing && existing.recipe && Array.isArray(existing.recipe.steps)
-        ? existing.recipe.steps.map((s) => ({ ...s }))
-        : [],
   };
 
   function paint() {
@@ -1618,32 +1770,19 @@ function renderTaskEditor(root, options) {
         <div class="sheet">
           <div class="sheet__handle"></div>
           <div class="sheet__header">
-            <h2 class="display" style="font-size:18px;">${existing ? 'タスクを編集' : isMeal ? '献立を追加' : '予定を追加'}</h2>
+            <h2 class="display" style="font-size:18px;">${existing ? 'タスクを編集' : '予定を追加'}</h2>
             <button class="sheet__close" id="te-close" aria-label="閉じる">${Icons.close}</button>
           </div>
 
           <div class="field">
-            <label class="field__label" for="te-title">${isMeal ? '料理名' : '内容'}</label>
-            <input id="te-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="${isMeal ? '例：鶏肉の和風炒め' : '例：資料作成'}" />
+            <label class="field__label" for="te-title">内容</label>
+            <input id="te-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="例：資料作成" />
           </div>
 
           <div class="field">
             <label class="field__label" for="te-start">開始時刻</label>
             <input id="te-start" class="input" type="time" value="${state.startTime}" />
           </div>
-
-          ${
-            isMeal
-              ? `
-          <div class="field">
-            <label class="field__label">調理手順（任意）</label>
-            <div id="te-steps">
-              ${state.steps.map((s, i) => renderStepRow(s, i)).join('')}
-            </div>
-            <button type="button" id="te-add-step" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 手順を追加</button>
-          </div>`
-              : ''
-          }
 
           <div class="field">
             <label class="field__label" for="te-memo">メモ（任意）</label>
@@ -1652,7 +1791,7 @@ function renderTaskEditor(root, options) {
 
           <div class="u-flex u-gap-8 u-mt-16">
             ${existing ? `<button id="te-delete" class="btn btn--danger">削除する</button>` : ''}
-            <button id="te-save" class="btn ${isMeal ? 'btn--meal-primary' : 'btn--primary'} btn--block">保存する</button>
+            <button id="te-save" class="btn btn--primary btn--block">保存する</button>
           </div>
         </div>
       </div>
@@ -1676,30 +1815,6 @@ function renderTaskEditor(root, options) {
       state.memo = e.target.value;
     });
 
-    if (isMeal) {
-      root.querySelector('#te-add-step').addEventListener('click', () => {
-        state.steps.push({ id: null, text: '', durationMinutes: 5 });
-        paint();
-      });
-      root.querySelectorAll('.step-text').forEach((input, i) => {
-        input.addEventListener('input', (e) => {
-          state.steps[i].text = e.target.value;
-        });
-      });
-      root.querySelectorAll('.step-duration').forEach((input, i) => {
-        input.addEventListener('input', (e) => {
-          state.steps[i].durationMinutes = e.target.value === '' ? null : Number(e.target.value);
-        });
-      });
-      root.querySelectorAll('.remove-step').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          const idx = Number(e.currentTarget.closest('.step-row').dataset.stepIndex);
-          state.steps.splice(idx, 1);
-          paint();
-        });
-      });
-    }
-
     if (existing) {
       root.querySelector('#te-delete').addEventListener('click', () => {
         const ok = window.confirm('このタスクを削除します。よろしいですか？');
@@ -1716,47 +1831,31 @@ function renderTaskEditor(root, options) {
   function save() {
     const title = state.title.trim();
     if (!title) {
-      window.App.toast(isMeal ? '料理名を入力してください' : '内容を入力してください');
+      window.App.toast('内容を入力してください');
       return;
     }
     const now = new Date().toISOString();
 
-    let recipe = null;
-    if (isMeal) {
-      const steps = state.steps
-        .filter((s) => s.text && s.text.trim().length > 0)
-        .map((s, i) => ({
-          id: s.id || IdGenerator.generateId('step'),
-          order: i + 1,
-          text: s.text.trim(),
-          durationMinutes: s.durationMinutes === undefined ? null : s.durationMinutes,
-        }));
-      recipe = steps.length > 0 ? { steps } : null;
-    }
-
     if (existing) {
-      const patch = {
+      Storage.Collection.update('events', existing.id, {
         title,
         startTime: state.startTime || null,
         memo: state.memo,
         updatedAt: now,
-      };
-      if (isMeal) patch.recipe = recipe;
-      Storage.Collection.update('events', existing.id, patch);
+      });
       window.App.toast('更新しました');
     } else {
       Storage.Collection.insert('events', {
         id: IdGenerator.generateId('event'),
         date,
         startTime: state.startTime || null,
-        endTime: state.endTime || null,
+        endTime: null,
         title,
         sourceType: 'manual',
         sourceTemplateId: null,
         sourceSuggestId: null,
-        category: isMeal ? 'meal' : 'other',
+        category: 'other',
         memo: state.memo,
-        recipe,
         rescheduleHistory: [],
         status: 'planned',
         createdAt: now,
@@ -1779,6 +1878,275 @@ function renderTaskEditor(root, options) {
 
 window.Screens = window.Screens || {};
 window.Screens.taskEditor = renderTaskEditor;
+
+})();
+
+
+/**
+ * mealPlanEditor.js
+ * 献立プラン（MEALPLAN）の手動編集。FR-6対応（2026-07-12 新規追加）。
+ * - メニュー（dishes）の編集シート：料理名の追加・編集・削除、保存で menuConfirmed:true にする
+ * - 工程（steps）1件分の追加・編集シート
+ * 工程の削除（×ボタン）・並び替え（上へ/下へ）はmealTab.js側のカードから直接行うため、
+ * そのためのデータ操作関数（removeStep / moveStep）もここに集約する。
+ */
+
+(function () {
+  'use strict';
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+function getMealPlan(dateStr) {
+  return Storage.Collection.find('mealPlans', (p) => p.date === dateStr);
+}
+
+/** 対象日の献立プランが未作成であれば、空のドラフトを作成して返す */
+function ensureMealPlan(dateStr) {
+  let plan = getMealPlan(dateStr);
+  if (!plan) {
+    const now = new Date().toISOString();
+    plan = {
+      id: IdGenerator.mealPlanIdForDate(dateStr),
+      date: dateStr,
+      dishes: [],
+      menuConfirmed: false,
+      steps: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    Storage.Collection.insert('mealPlans', plan);
+  }
+  return plan;
+}
+
+function saveMealPlan(dateStr, patch) {
+  const plan = ensureMealPlan(dateStr);
+  const now = new Date().toISOString();
+  Storage.Collection.update('mealPlans', plan.id, { ...patch, updatedAt: now });
+  return getMealPlan(dateStr);
+}
+
+function removeStep(dateStr, stepId) {
+  const plan = ensureMealPlan(dateStr);
+  const steps = plan.steps
+    .filter((s) => s.id !== stepId)
+    .sort((a, b) => a.order - b.order)
+    .map((s, i) => ({ ...s, order: i + 1 }));
+  saveMealPlan(dateStr, { steps });
+}
+
+function moveStep(dateStr, stepId, direction) {
+  const plan = ensureMealPlan(dateStr);
+  const steps = [...plan.steps].sort((a, b) => a.order - b.order);
+  const idx = steps.findIndex((s) => s.id === stepId);
+  if (idx === -1) return;
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= steps.length) return;
+  const tmp = steps[idx];
+  steps[idx] = steps[swapIdx];
+  steps[swapIdx] = tmp;
+  steps.forEach((s, i) => {
+    s.order = i + 1;
+  });
+  saveMealPlan(dateStr, { steps });
+}
+
+/** メニュー（料理名リスト）編集シート。保存すると menuConfirmed:true になる */
+function openDishesEditor(dateStr, onSaved) {
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+  const plan = ensureMealPlan(dateStr);
+  const state = { dishes: plan.dishes.length > 0 ? [...plan.dishes] : [''] };
+
+  function paint() {
+    modalRoot.innerHTML = `
+      <div class="sheet-backdrop" id="dishes-backdrop">
+        <div class="sheet">
+          <div class="sheet__handle"></div>
+          <div class="sheet__header">
+            <h2 class="display" style="font-size:18px;">メニューを編集</h2>
+            <button class="sheet__close" id="dishes-close" aria-label="閉じる">${Icons.close}</button>
+          </div>
+          <div id="dishes-list">
+            ${state.dishes
+              .map(
+                (d, i) => `
+              <div class="u-flex u-gap-8 u-mt-16" data-dish-index="${i}">
+                <input class="input dish-input" type="text" placeholder="例：豚キムチ" value="${escapeHtml(d)}" style="flex:1;" />
+                <button type="button" class="btn btn--danger btn--sm remove-dish" aria-label="この料理を削除">${Icons.close}</button>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+          <button type="button" id="add-dish" class="btn btn--outline btn--sm u-mt-16">${Icons.plus} 料理を追加</button>
+          <button id="dishes-save" class="btn btn--meal-primary btn--block u-mt-24">保存する</button>
+        </div>
+      </div>
+    `;
+    bind();
+  }
+
+  function bind() {
+    modalRoot.querySelector('#dishes-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'dishes-backdrop') close();
+    });
+    modalRoot.querySelector('#dishes-close').addEventListener('click', () => close());
+    modalRoot.querySelectorAll('.dish-input').forEach((input, i) => {
+      input.addEventListener('input', (e) => {
+        state.dishes[i] = e.target.value;
+      });
+    });
+    modalRoot.querySelectorAll('.remove-dish').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const idx = Number(e.currentTarget.closest('[data-dish-index]').dataset.dishIndex);
+        state.dishes.splice(idx, 1);
+        paint();
+      });
+    });
+    modalRoot.querySelector('#add-dish').addEventListener('click', () => {
+      state.dishes.push('');
+      paint();
+    });
+    modalRoot.querySelector('#dishes-save').addEventListener('click', () => {
+      const dishes = state.dishes.map((d) => d.trim()).filter((d) => d.length > 0);
+      if (dishes.length === 0) {
+        window.App.toast('料理名を1つ以上入力してください');
+        return;
+      }
+      saveMealPlan(dateStr, { dishes, menuConfirmed: true });
+      window.App.toast('メニューを保存しました');
+      close(true);
+    });
+  }
+
+  function close(shouldRefresh) {
+    modalRoot.innerHTML = '';
+    if (shouldRefresh && typeof onSaved === 'function') onSaved();
+  }
+
+  paint();
+}
+
+/** 工程（1件）の追加・編集シート */
+function openStepEditor(dateStr, stepId, onSaved) {
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+  const plan = ensureMealPlan(dateStr);
+  const existing = stepId ? plan.steps.find((s) => s.id === stepId) : null;
+
+  const state = {
+    title: existing ? existing.title || '' : '',
+    description: existing ? existing.description || '' : '',
+    durationMinutes: existing && existing.durationMinutes != null ? String(existing.durationMinutes) : '',
+  };
+
+  function paint() {
+    modalRoot.innerHTML = `
+      <div class="sheet-backdrop" id="step-backdrop">
+        <div class="sheet">
+          <div class="sheet__handle"></div>
+          <div class="sheet__header">
+            <h2 class="display" style="font-size:18px;">${existing ? '工程を編集' : '工程を追加'}</h2>
+            <button class="sheet__close" id="step-close" aria-label="閉じる">${Icons.close}</button>
+          </div>
+          <div class="field">
+            <label class="field__label" for="step-title">見出し</label>
+            <input id="step-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="例：食材の下準備" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="step-duration">所要時間（分）</label>
+            <input id="step-duration" class="input" type="number" min="0" inputmode="numeric" value="${escapeHtml(state.durationMinutes)}" placeholder="例：10" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="step-description">説明（任意）</label>
+            <textarea id="step-description" class="textarea" placeholder="具体的な作業内容">${escapeHtml(state.description)}</textarea>
+          </div>
+          <div class="u-flex u-gap-8 u-mt-16">
+            ${existing ? `<button id="step-delete" class="btn btn--danger">削除する</button>` : ''}
+            <button id="step-save" class="btn btn--meal-primary btn--block">保存する</button>
+          </div>
+        </div>
+      </div>
+    `;
+    bind();
+  }
+
+  function bind() {
+    modalRoot.querySelector('#step-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'step-backdrop') close();
+    });
+    modalRoot.querySelector('#step-close').addEventListener('click', () => close());
+    modalRoot.querySelector('#step-title').addEventListener('input', (e) => {
+      state.title = e.target.value;
+    });
+    modalRoot.querySelector('#step-duration').addEventListener('input', (e) => {
+      state.durationMinutes = e.target.value;
+    });
+    modalRoot.querySelector('#step-description').addEventListener('input', (e) => {
+      state.description = e.target.value;
+    });
+
+    if (existing) {
+      modalRoot.querySelector('#step-delete').addEventListener('click', () => {
+        const ok = window.confirm('この工程を削除します。よろしいですか？');
+        if (!ok) return;
+        removeStep(dateStr, existing.id);
+        window.App.toast('削除しました');
+        close(true);
+      });
+    }
+
+    modalRoot.querySelector('#step-save').addEventListener('click', () => {
+      const title = state.title.trim();
+      if (!title) {
+        window.App.toast('見出しを入力してください');
+        return;
+      }
+      const durationMinutes = state.durationMinutes === '' ? null : Number(state.durationMinutes);
+      const latestPlan = ensureMealPlan(dateStr);
+      if (existing) {
+        const steps = latestPlan.steps.map((s) =>
+          s.id === existing.id ? { ...s, title, description: state.description.trim(), durationMinutes } : s
+        );
+        saveMealPlan(dateStr, { steps });
+        window.App.toast('更新しました');
+      } else {
+        const newStep = {
+          id: IdGenerator.generateId('step'),
+          order: latestPlan.steps.length + 1,
+          title,
+          description: state.description.trim(),
+          durationMinutes,
+        };
+        saveMealPlan(dateStr, { steps: [...latestPlan.steps, newStep] });
+        window.App.toast('追加しました');
+      }
+      close(true);
+    });
+  }
+
+  function close(shouldRefresh) {
+    modalRoot.innerHTML = '';
+    if (shouldRefresh && typeof onSaved === 'function') onSaved();
+  }
+
+  paint();
+}
+
+window.MealPlanEditor = {
+  getMealPlan,
+  ensureMealPlan,
+  saveMealPlan,
+  removeStep,
+  moveStep,
+  openDishesEditor,
+  openStepEditor,
+};
 
 })();
 
