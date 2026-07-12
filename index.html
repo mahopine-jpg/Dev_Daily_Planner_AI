@@ -889,6 +889,108 @@ input[type="date"] {
   color: var(--ink-faint);
 }
 
+/* --- 基本スケジュール一覧：食材メモと同じ1行リスト形式で統一 --- */
+.base-list {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  background: var(--surface);
+}
+
+.base-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--bg-cream-deep);
+}
+
+.base-row:last-child { border-bottom: none; }
+
+.base-row__time {
+  flex-shrink: 0;
+  width: 44px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.base-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.base-row__title {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.base-row__days {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.base-row__day {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-pale);
+  border-radius: var(--radius-pill);
+  padding: 2px 6px;
+}
+
+.base-row__delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+}
+
+/* --- 曜日トグル（基本スケジュールの追加・編集シート内） --- */
+.dow-toggle-row {
+  display: flex;
+  gap: 6px;
+}
+
+.dow-toggle {
+  flex: 1;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg-cream-deep);
+  color: var(--ink-faint);
+}
+
+.dow-toggle.is-selected {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* --- サブ画面（下部ナビに属さない画面）の戻る導線 --- */
+.app-header__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  margin-bottom: 8px;
+}
+
+.app-header__back svg { width: 18px; height: 18px; }
+
 /* --- Utility --- */
 .u-flex { display: flex; }
 .u-flex-col { display: flex; flex-direction: column; }
@@ -1378,6 +1480,7 @@ const Icons = {
   ),
   send: svg('<path d="M4 12 20 4l-5.5 16-3-7-7-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'),
   close: svg('<path d="M5 5l14 14M19 5 5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'),
+  arrowLeft: svg('<path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
   eye: svg(
     '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.8"/>'
   ),
@@ -2185,6 +2288,11 @@ function renderSettings(root) {
         </div>
       </div>
 
+      <div class="card u-flex-col u-gap-4" id="settings-open-base-schedule" style="cursor:pointer;">
+        <div class="field__label">基本スケジュール設定</div>
+        <p class="hint">起床・お弁当の用意など、毎日決まったルーティンをテンプレートとして登録できます。</p>
+      </div>
+
       <div class="card u-flex-col u-gap-12">
         <div class="field__label">データ管理</div>
         <p class="hint">予定・献立・食材メモ・日記のバックアップをファイルに書き出せます。</p>
@@ -2198,6 +2306,10 @@ function renderSettings(root) {
       </div>
     </div>
   `;
+
+  root.querySelector('#settings-open-base-schedule').addEventListener('click', () => {
+    window.App.navigate('baseSchedule');
+  });
 
   const input = root.querySelector('#settings-api-key');
   root.querySelector('#settings-toggle-visibility').addEventListener('click', (e) => {
@@ -2234,6 +2346,256 @@ function renderSettings(root) {
 
 window.Screens = window.Screens || {};
 window.Screens.settings = renderSettings;
+
+})();
+
+
+/**
+ * baseSchedule.js
+ * 設定タブから遷移する「基本スケジュール設定」画面。BASEエンティティ（毎日決まって発生する
+ * ルーティンのテンプレート）のCRUD UI。ここで登録したテンプレートは、予定タブのタイムライン描画時に
+ * ensureBaseScheduleInstances（scheduleTab.js）によって対象日のEVTとして自動生成される
+ * （生成後は独立したレコードのため、テンプレートの変更・削除は過去に生成済みのタスクには影響しない）。
+ */
+
+(function () {
+  'use strict';
+
+const DOW_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DOW_LABEL = { mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日' };
+const CATEGORY_LABELS = { life: '生活', work: '仕事', other: 'その他' };
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+function renderBaseSchedule(root) {
+  const items = Storage.Collection.all('baseSchedules').sort((a, b) =>
+    (a.time || '').localeCompare(b.time || '')
+  );
+
+  root.innerHTML = `
+    <div class="app-header">
+      <button class="app-header__back" id="bs-back">${Icons.arrowLeft}設定に戻る</button>
+      <h1 class="app-header__title display">基本スケジュール設定</h1>
+      <p class="app-header__subtitle">毎日決まって発生するルーティンをテンプレートとして登録します</p>
+    </div>
+    <div class="screen-body screen-body--fab-spacing">
+      ${
+        items.length === 0
+          ? `<div class="empty-state">
+               <div class="empty-state__motif">🌿</div>
+               <p class="empty-state__text">まだルーティンが登録されていません。<br>右下の＋から、起床やお弁当の用意などを登録してみましょう。</p>
+             </div>`
+          : `<div class="base-list">${items
+              .map((b) => {
+                const days = b.daysOfWeek || [];
+                return `
+              <div class="base-row" data-open-base-id="${b.id}">
+                <div class="base-row__time">${b.time || '--:--'}</div>
+                <div class="base-row__body">
+                  <div class="base-row__title">${escapeHtml(b.title)}</div>
+                  <div class="base-row__days">
+                    ${DOW_ORDER.filter((d) => days.includes(d))
+                      .map((d) => `<span class="base-row__day">${DOW_LABEL[d]}</span>`)
+                      .join('')}
+                  </div>
+                </div>
+                <button class="base-row__delete base-delete" data-base-id="${b.id}" aria-label="削除">${Icons.close}</button>
+              </div>`;
+              })
+              .join('')}</div>`
+      }
+    </div>
+    <button class="fab" id="add-base" aria-label="基本スケジュールを追加">${Icons.plus}</button>
+  `;
+
+  root.querySelector('#bs-back').addEventListener('click', () => {
+    window.App.navigate('settings');
+  });
+
+  root.querySelector('#add-base').addEventListener('click', () => {
+    openBaseScheduleModal(null, () => renderBaseSchedule(root));
+  });
+
+  root.querySelectorAll('[data-open-base-id]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const item = Storage.Collection.find('baseSchedules', (b) => b.id === el.dataset.openBaseId);
+      openBaseScheduleModal(item, () => renderBaseSchedule(root));
+    });
+  });
+
+  root.querySelectorAll('.base-delete').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ok = window.confirm('この基本スケジュールを削除します。過去に生成済みの予定には影響しません。よろしいですか？');
+      if (!ok) return;
+      Storage.Collection.remove('baseSchedules', btn.dataset.baseId);
+      window.App.toast('削除しました');
+      renderBaseSchedule(root);
+    });
+  });
+}
+
+function openBaseScheduleModal(existing, onSaved) {
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+
+  const state = {
+    title: existing ? existing.title || '' : '',
+    time: existing ? existing.time || '' : '',
+    daysOfWeek: existing ? DOW_ORDER.filter((d) => (existing.daysOfWeek || []).includes(d)) : [...DOW_ORDER],
+    category: existing && existing.category ? existing.category : 'life',
+  };
+
+  function paint() {
+    modalRoot.innerHTML = `
+      <div class="sheet-backdrop" id="bs-backdrop">
+        <div class="sheet">
+          <div class="sheet__handle"></div>
+          <div class="sheet__header">
+            <h2 class="display" style="font-size:18px;">${existing ? 'ルーティンを編集' : 'ルーティンを追加'}</h2>
+            <button class="sheet__close" id="bs-close" aria-label="閉じる">${Icons.close}</button>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="bs-title">名称</label>
+            <input id="bs-title" class="input" type="text" value="${escapeHtml(state.title)}" placeholder="例：起床" />
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="bs-time">時刻</label>
+            <div class="time-input-wrap">
+              <input id="bs-time" type="time" value="${state.time}" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field__label">曜日（複数選択可）</label>
+            <div class="dow-toggle-row">
+              ${DOW_ORDER.map(
+                (d) => `
+                <button type="button" class="dow-toggle ${state.daysOfWeek.includes(d) ? 'is-selected' : ''}" data-dow="${d}">${DOW_LABEL[d]}</button>
+              `
+              ).join('')}
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field__label">分類</label>
+            <div class="segmented">
+              ${Object.keys(CATEGORY_LABELS)
+                .map(
+                  (key) => `
+                <button type="button" class="segmented__option base-category-option ${state.category === key ? 'is-selected' : ''}" data-category="${key}">${CATEGORY_LABELS[key]}</button>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+
+          <div class="u-flex u-gap-8 u-mt-16">
+            ${existing ? `<button id="bs-delete" class="btn btn--danger">削除する</button>` : ''}
+            <button id="bs-save" class="btn btn--primary btn--block">保存する</button>
+          </div>
+        </div>
+      </div>
+    `;
+    bindEvents();
+  }
+
+  function bindEvents() {
+    modalRoot.querySelector('#bs-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'bs-backdrop') close();
+    });
+    modalRoot.querySelector('#bs-close').addEventListener('click', () => close());
+
+    modalRoot.querySelector('#bs-title').addEventListener('input', (e) => {
+      state.title = e.target.value;
+    });
+    modalRoot.querySelector('#bs-time').addEventListener('input', (e) => {
+      state.time = e.target.value;
+    });
+
+    modalRoot.querySelectorAll('.dow-toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const d = btn.dataset.dow;
+        if (state.daysOfWeek.includes(d)) {
+          state.daysOfWeek = state.daysOfWeek.filter((x) => x !== d);
+        } else {
+          state.daysOfWeek = DOW_ORDER.filter((x) => state.daysOfWeek.includes(x) || x === d);
+        }
+        paint();
+      });
+    });
+
+    modalRoot.querySelectorAll('.base-category-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.category = btn.dataset.category;
+        paint();
+      });
+    });
+
+    if (existing) {
+      modalRoot.querySelector('#bs-delete').addEventListener('click', () => {
+        const ok = window.confirm('この基本スケジュールを削除します。過去に生成済みの予定には影響しません。よろしいですか？');
+        if (!ok) return;
+        Storage.Collection.remove('baseSchedules', existing.id);
+        window.App.toast('削除しました');
+        close(true);
+      });
+    }
+
+    modalRoot.querySelector('#bs-save').addEventListener('click', () => {
+      const title = state.title.trim();
+      if (!title) {
+        window.App.toast('名称を入力してください');
+        return;
+      }
+      if (!state.time) {
+        window.App.toast('時刻を入力してください');
+        return;
+      }
+      if (state.daysOfWeek.length === 0) {
+        window.App.toast('曜日を1つ以上選択してください');
+        return;
+      }
+      const now = new Date().toISOString();
+      if (existing) {
+        Storage.Collection.update('baseSchedules', existing.id, {
+          title,
+          time: state.time,
+          daysOfWeek: [...state.daysOfWeek],
+          category: state.category,
+        });
+        window.App.toast('更新しました');
+      } else {
+        Storage.Collection.insert('baseSchedules', {
+          id: IdGenerator.generateId('baseSchedule'),
+          title,
+          time: state.time,
+          daysOfWeek: [...state.daysOfWeek],
+          category: state.category,
+          createdAt: now,
+        });
+        window.App.toast('追加しました');
+      }
+      close(true);
+    });
+  }
+
+  function close(shouldRefresh) {
+    modalRoot.innerHTML = '';
+    if (shouldRefresh && typeof onSaved === 'function') onSaved();
+  }
+
+  paint();
+}
+
+window.Screens = window.Screens || {};
+window.Screens.baseSchedule = renderBaseSchedule;
 
 })();
 
@@ -3348,9 +3710,12 @@ const NAV_ITEMS = [
 
 const DEFAULT_ROUTE = 'schedule';
 
+/** 下部ナビの5タブには含めないが、遷移先として有効な画面（設定画面からの遷移先など） */
+const EXTRA_ROUTES = ['baseSchedule'];
+
 function currentRoute() {
   const hash = window.location.hash.replace(/^#\//, '');
-  const valid = NAV_ITEMS.some((i) => i.key === hash);
+  const valid = NAV_ITEMS.some((i) => i.key === hash) || EXTRA_ROUTES.includes(hash);
   return valid ? hash : DEFAULT_ROUTE;
 }
 
