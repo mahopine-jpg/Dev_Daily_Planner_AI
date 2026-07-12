@@ -42,6 +42,7 @@
   --cat-ai: #6E4FA0;        /* AI相談で組んだ予定 */
   --cat-manual: #FFFFFF;    /* 手動追加 */
   --cat-meal: #E8935E;      /* 献立 */
+  --cat-meal-pale: #FBE6D7; /* 献立まわりの「非選択・淡色」用（--primary-paleの献立版） */
 
   --success: #6FA07C;
   --danger: #C2665F;
@@ -241,8 +242,18 @@ a { color: var(--primary); }
 }
 
 /* --- 献立タブ用の差し色バリエーション（予定タブとの視覚的な区別） --- */
+.segmented--meal {
+  background: var(--cat-meal-pale); /* 2026-07-13追記：選択中の色だけ献立トーンに変えていて、
+                                        非選択側の背景が--primary-paleのまま残っていた見落としを修正 */
+}
+
+.segmented--meal .segmented__option {
+  color: var(--cat-meal);
+}
+
 .segmented--meal .segmented__option.is-selected {
   background: var(--cat-meal);
+  color: #fff;
 }
 
 .btn--meal-primary {
@@ -548,7 +559,10 @@ input[type="date"] {
 .timeline__row {
   display: grid;
   grid-template-columns: 44px 20px 1fr;
-  align-items: start;
+  align-items: stretch; /* 2026-07-13修正：start だと.timeline__nodeの高さがカードより短くなり、
+                            線(::before)がカードの下端まで届かず途切れて見えていた。
+                            stretchにして.timeline__nodeをカードと同じ高さまで伸ばすことで、
+                            線が常にカードの下端（＝次の行との隙間）まで届くようにする。 */
   margin-bottom: 14px;
 }
 
@@ -574,6 +588,10 @@ input[type="date"] {
   background: var(--primary-soft);
 }
 
+.timeline__row:last-child .timeline__node::before {
+  bottom: 0; /* 最後の行は次の行がないので、余分に線を伸ばさない */
+}
+
 .timeline__node::after {
   content: '';
   width: 10px;
@@ -585,13 +603,65 @@ input[type="date"] {
 }
 
 .timeline__card {
-  padding: 12px 14px;
+  position: relative;
+  padding: 12px 40px 12px 14px;
 }
 
 .timeline__card--is-life { border-left: 4px solid var(--cat-life); }
 .timeline__card--is-ai { border-left: 4px solid var(--cat-ai); }
 .timeline__card--is-manual { border-left: 4px solid var(--ink-faint); }
 .timeline__card--is-meal { border-left: 4px solid var(--cat-meal); }
+
+.timeline__delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+}
+
+.timeline__card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.timeline__check {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.8px solid var(--primary-soft);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.timeline__check.is-checked {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.timeline__card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline__card.is-done {
+  opacity: 0.6;
+}
+
+.timeline__card.is-done .timeline__title {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+}
 
 .timeline__badge {
   font-size: 11px;
@@ -958,6 +1028,12 @@ input[type="date"] {
   border-bottom-right-radius: 4px;
 }
 
+.chat-bubble--user--meal {
+  background: var(--cat-meal); /* 献立チャットのユーザー発言も献立トーンに統一
+                                   （AIの吹き出し・ヘッダー・送信ボタン等は既に献立トーンだったが、
+                                   ユーザー側の吹き出しだけ紫のまま取り残されていた） */
+}
+
 .chat-bubble--ai {
   background: var(--surface);
   color: var(--ink);
@@ -1311,6 +1387,7 @@ const Icons = {
   arrowUp: svg('<path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
   arrowDown: svg('<path d="M12 5v14M19 12l-7 7-7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
   pencil: svg('<path d="M4 20h4L18.5 9.5a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4 15v5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'),
+  check: svg('<path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>'),
 };
 
 window.Icons = Icons;
@@ -1471,14 +1548,21 @@ function renderTimeline(events) {
       ${events
         .map((e) => {
           const badge = categoryBadge(e);
+          const isDone = e.status === 'done';
           return `
-            <div class="timeline__row" data-task-id="${e.id}" style="cursor:pointer;">
+            <div class="timeline__row" data-task-id="${e.id}">
               <div class="timeline__time">${e.startTime || '--:--'}</div>
               <div class="timeline__node"></div>
-              <div class="timeline__card card timeline__card--${badge.cls}">
-                <div class="timeline__badge">${badge.label}</div>
-                <div class="timeline__title">${escapeHtml(e.title)}</div>
-                ${e.memo ? `<div class="timeline__meta">${escapeHtml(e.memo)}</div>` : ''}
+              <div class="timeline__card card timeline__card--${badge.cls} ${isDone ? 'is-done' : ''}">
+                <button type="button" class="timeline__delete" data-task-id="${e.id}" aria-label="この予定を削除">${Icons.close}</button>
+                <div class="timeline__card-main">
+                  <button type="button" class="timeline__check ${isDone ? 'is-checked' : ''}" data-task-id="${e.id}" aria-label="${isDone ? '完了を取り消す' : '完了にする'}">${isDone ? Icons.check : ''}</button>
+                  <div class="timeline__card-body">
+                    <div class="timeline__badge">${badge.label}</div>
+                    <div class="timeline__title">${escapeHtml(e.title)}</div>
+                    ${e.memo ? `<div class="timeline__meta">${escapeHtml(e.memo)}</div>` : ''}
+                  </div>
+                </div>
               </div>
             </div>
           `;
@@ -1535,12 +1619,34 @@ function renderScheduleTab(root) {
     });
 
     root.querySelectorAll('.timeline__row').forEach((row) => {
-      row.addEventListener('click', () => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.timeline__delete') || e.target.closest('.timeline__check')) return;
         window.App.openTaskEditor({
           mode: 'schedule',
           date: DateUtils.resolveTarget(state.target),
           taskId: row.dataset.taskId,
         });
+      });
+    });
+
+    root.querySelectorAll('.timeline__delete').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ok = window.confirm('この予定を削除します。よろしいですか？');
+        if (!ok) return;
+        Storage.Collection.remove('events', btn.dataset.taskId);
+        window.App.toast('削除しました');
+        paint();
+      });
+    });
+
+    root.querySelectorAll('.timeline__check').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const evt = Storage.Collection.find('events', (ev) => ev.id === btn.dataset.taskId);
+        if (!evt) return;
+        Storage.Collection.update('events', evt.id, { status: evt.status === 'done' ? 'planned' : 'done' });
+        paint();
       });
     });
   }
@@ -2975,7 +3081,7 @@ function open(mode, target) {
 
   function renderMessage(m, suggestions, menuConfirmed) {
     if (m.role === 'user') {
-      return `<div class="chat-bubble-row chat-bubble-row--user"><div class="chat-bubble chat-bubble--user">${escapeHtml(
+      return `<div class="chat-bubble-row chat-bubble-row--user"><div class="chat-bubble chat-bubble--user ${mode === 'meal' ? 'chat-bubble--user--meal' : ''}">${escapeHtml(
         m.text
       ).replace(/\n/g, '<br>')}</div></div>`;
     }
