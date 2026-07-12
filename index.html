@@ -369,17 +369,14 @@ a { color: var(--primary); }
 }
 
 /*
- * iOS Safariの input[type="time"] / input[type="date"] は、ネイティブのピッカーUIが
- * 独自の最小幅を持っており、上記の min-width:0 だけでは幅の指定(width:100%)を
- * 無視して横にはみ出すことがある。type別に明示的に上書きして確実に幅を制約する。
- * display:block も明示し、インライン要素としての幅計算の揺れを避ける。
+ * 2026-07-12 追記：input[type="time"]は、display:block/width:100%等のCSSだけでは
+ * 安定して枠内に収まらないことがある（iOS Safari側の内部レイアウトが独自の最小幅を
+ * 要求し、指定した幅を無視して右にはみ出すことがある）。appearance:noneで装飾ごと外す
+ * 対策も試したが、今度は時刻表示自体が描画されなくなる副作用が出たため不採用とした。
  *
- * 2026-07-12 追記：display:block/width:100%だけでは直らなかったため、
- * -webkit-appearance:none を追加。iOS Safariのtime/date inputは、ネイティブの
- * 見た目（スピナーや時刻表示部分の内部レイアウト）が独自の最小幅を要求し、
- * CSSのwidth指定を無視して横にはみ出すことがある。appearance:none にすると
- * ネイティブの装飾が外れ、.inputクラスで指定した通常のボックスとして
- * 幅・パディングが効くようになる（タップすると通常通りホイール式のピッカーは開く）。
+ * そのため、input自体の幅指定に加えて、親に overflow:hidden の専用ラッパー
+ * (.time-input-wrap) を追加し、中身がどんな幅を要求してきても、ラッパーの外枠からは
+ * 物理的にはみ出せないようにする（見た目の「枠」を確実に固定する目的の対策）。
  */
 input[type="time"],
 input[type="date"] {
@@ -388,8 +385,12 @@ input[type="date"] {
   min-width: 0 !important;
   max-width: 100%;
   box-sizing: border-box;
-  -webkit-appearance: none;
-  appearance: none;
+}
+
+.time-input-wrap {
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-md);
 }
 
 .input:focus, .textarea:focus, .select:focus {
@@ -1951,7 +1952,9 @@ function renderTaskEditor(root, options) {
 
           <div class="field">
             <label class="field__label" for="te-start">開始時刻</label>
-            <input id="te-start" class="input" type="time" value="${state.startTime}" />
+            <div class="time-input-wrap">
+              <input id="te-start" class="input" type="time" value="${state.startTime}" />
+            </div>
           </div>
 
           <div class="field">
