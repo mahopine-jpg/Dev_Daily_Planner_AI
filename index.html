@@ -72,6 +72,11 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  height: 100dvh; /* 2026-07-13追記：iOS Safariの100vh/height:100%は「UIが最小化された時の最大表示領域」を
+                     基準にすることがあり、実際に見えている表示領域より大きく計算されることで、
+                     固定表示の下部ナビとの間にクリーム色の隙間が生まれる原因になっていた。
+                     100dvhは実際に見えている表示領域を常に反映するため、これに差し替える
+                     （非対応の古いブラウザでは上のheight:100%がそのまま使われる） */
   background: var(--bg-cream);
   color: var(--ink);
   font-family: var(--font-body);
@@ -125,6 +130,7 @@ a { color: var(--primary); }
   flex: 1;
   padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app-header {
@@ -802,6 +808,7 @@ input[type="date"] {
 /* --- Onboarding --- */
 .onboarding {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   justify-content: center;
