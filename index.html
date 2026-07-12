@@ -375,30 +375,58 @@ a { color: var(--primary); }
 }
 
 /*
- * 2026-07-13追記：input[type="time"]（ネイティブのホイールピッカー）は、iOS Safari側の
- * 既知の描画・幅計算バグ（overflow:hiddenでのクリップ不備、padding+width:100%の計算崩れ等）
- * を何重にCSSで対策しても実機ではみ出しが再現し続けたため、方式そのものを変更した。
- * 開始時刻は「時」「分」それぞれ独立した<select>（プルダウン）で選ぶ方式に統一する。
- * 通常の<select>はこの種のネイティブ内部レイアウトの問題を持たないため、
- * .select（既存の.input系と共通のスタイル）だけで安定して枠内に収まる。
+ * 2026-07-12 追記：input[type="time"]は、display:block/width:100%等のCSSだけでは
+ * 安定して枠内に収まらないことがある（iOS Safari側の内部レイアウトが独自の最小幅を
+ * 要求し、指定した幅を無視して右にはみ出すことがある）。appearance:noneで装飾ごと外す
+ * 対策も試したが、今度は時刻表示自体が描画されなくなる副作用が出たため不採用とした。
+ *
+ * そのため、input自体の幅指定に加えて、親に overflow:hidden の専用ラッパー
+ * (.time-input-wrap) を追加し、中身がどんな幅を要求してきても、ラッパーの外枠からは
+ * 物理的にはみ出せないようにする（見た目の「枠」を確実に固定する目的の対策）。
  */
-.time-select-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/*
+ * 2026-07-13追記（実機再検証）：min-width:0やmask-imageを重ねても直らなかった。
+ * ChatGPTの分析および複数の報告によると、iOS Safari（26.5.x系）には
+ * 「input[type="time"]にpaddingとwidth:100%を同時指定すると、幅の計算自体が
+ * 崩れて右にはみ出す」という既知バグがある（box-sizing:border-boxを指定していても発生する）。
+ * 対策として、paddingとborder/backgroundをinput自身からは完全に外し、
+ * 代わりに.time-input-wrap側にそれらを持たせる。inputは中身の文字だけを描画する
+ * 透明な要素にし、paddingを一切持たないようにすることで、バグの発生条件そのものを避ける。
+ */
+input[type="time"],
+input[type="date"] {
+  display: block;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-.time-select-group .select {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
+.time-input-wrap {
+  width: 100%;
+  min-width: 0; /* このラッパー自身が.fieldのflexアイテムになるため、min-widthを明示しないと
+                   中身(input)の最小幅ぶん広がってしまい、overflow:hiddenが機能しなくなる */
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--primary-soft);
+  background: var(--surface);
+  padding: 0 14px; /* 見た目の左右余白はここで持つ（inputには持たせない） */
+  box-sizing: border-box;
+  position: relative;
+  -webkit-mask-image: -webkit-radial-gradient(white, black); /* Safariのoverflow:hidden+border-radius
+                                                                  クリップ不具合への保険として残す */
+  transform: translateZ(0);
 }
 
-.time-select-group__colon {
-  flex-shrink: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ink-muted);
+.time-input-wrap input[type="time"],
+.time-input-wrap input[type="date"] {
+  padding: 12px 0 !important; /* 上下のpaddingのみ。左右はラッパーのpaddingで確保することで、
+                                  input自身にはpadding+width:100%の組み合わせを作らせない */
+  margin: 0;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  color: var(--ink);
 }
 
 .input:focus, .textarea:focus, .select:focus {
@@ -2123,40 +2151,12 @@ function escapeHtml(str) {
 function renderTaskEditor(root, options) {
   const { date, taskId } = options;
   const existing = taskId ? Storage.Collection.find('events', (e) => e.id === taskId) : null;
-  const [existingHour, existingMinute] = existing && existing.startTime ? existing.startTime.split(':') : ['', ''];
 
   const state = {
     title: existing ? existing.title || '' : '',
-    startHour: existingHour || '',
-    startMinute: existingMinute || '',
+    startTime: existing ? existing.startTime || '' : '',
     memo: existing ? existing.memo || '' : '',
   };
-
-  function hourOptions() {
-    const opts = ['<option value="">--</option>'];
-    for (let h = 0; h < 24; h++) {
-      const v = String(h).padStart(2, '0');
-      opts.push(`<option value="${v}" ${state.startHour === v ? 'selected' : ''}>${v}時</option>`);
-    }
-    return opts.join('');
-  }
-
-  function minuteOptions() {
-    const opts = ['<option value="">--</option>'];
-    const values = [];
-    for (let m = 0; m < 60; m += 5) values.push(m);
-    // 5分刻み以外の値（AI相談経由等で保存された場合）も選択肢から消えないよう補完する
-    const existingNum = state.startMinute === '' ? null : Number(state.startMinute);
-    if (existingNum !== null && !values.includes(existingNum)) {
-      values.push(existingNum);
-      values.sort((a, b) => a - b);
-    }
-    values.forEach((m) => {
-      const v = String(m).padStart(2, '0');
-      opts.push(`<option value="${v}" ${state.startMinute === v ? 'selected' : ''}>${v}分</option>`);
-    });
-    return opts.join('');
-  }
 
   function paint() {
     root.innerHTML = `
@@ -2174,11 +2174,9 @@ function renderTaskEditor(root, options) {
           </div>
 
           <div class="field">
-            <label class="field__label" for="te-start-hour">開始時刻</label>
-            <div class="time-select-group">
-              <select id="te-start-hour" class="select">${hourOptions()}</select>
-              <span class="time-select-group__colon">:</span>
-              <select id="te-start-minute" class="select">${minuteOptions()}</select>
+            <label class="field__label" for="te-start">開始時刻</label>
+            <div class="time-input-wrap">
+              <input id="te-start" type="time" value="${state.startTime}" />
             </div>
           </div>
 
@@ -2206,11 +2204,8 @@ function renderTaskEditor(root, options) {
     root.querySelector('#te-title').addEventListener('input', (e) => {
       state.title = e.target.value;
     });
-    root.querySelector('#te-start-hour').addEventListener('change', (e) => {
-      state.startHour = e.target.value;
-    });
-    root.querySelector('#te-start-minute').addEventListener('change', (e) => {
-      state.startMinute = e.target.value;
+    root.querySelector('#te-start').addEventListener('input', (e) => {
+      state.startTime = e.target.value;
     });
     root.querySelector('#te-memo').addEventListener('input', (e) => {
       state.memo = e.target.value;
@@ -2235,14 +2230,12 @@ function renderTaskEditor(root, options) {
       window.App.toast('内容を入力してください');
       return;
     }
-    // 時・分のどちらか一方だけ選ばれている場合は、両方揃っていないとみなして未設定として扱う
-    const startTime = state.startHour && state.startMinute ? `${state.startHour}:${state.startMinute}` : null;
     const now = new Date().toISOString();
 
     if (existing) {
       Storage.Collection.update('events', existing.id, {
         title,
-        startTime,
+        startTime: state.startTime || null,
         memo: state.memo,
         updatedAt: now,
       });
@@ -2251,7 +2244,7 @@ function renderTaskEditor(root, options) {
       Storage.Collection.insert('events', {
         id: IdGenerator.generateId('event'),
         date,
-        startTime,
+        startTime: state.startTime || null,
         endTime: null,
         title,
         sourceType: 'manual',
