@@ -389,6 +389,9 @@ input[type="date"] {
 
 .time-input-wrap {
   width: 100%;
+  min-width: 0; /* 2026-07-13追記：このラッパー自身が.fieldのflexアイテムになるため、
+                   min-widthを明示しないと中身(input)の最小幅ぶん広がってしまい、
+                   overflow:hiddenが機能しなくなる（横はみ出し再発の原因だった） */
   overflow: hidden;
   border-radius: var(--radius-md);
 }
@@ -609,6 +612,19 @@ input[type="date"] {
   font-weight: 700;
   line-height: 1.6;
   color: var(--ink);
+}
+
+.meal-plan-header__total-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: var(--surface);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
 }
 
 .meal-plan-header__edit {
@@ -1567,6 +1583,7 @@ function renderMealTab(root) {
     const dishes = plan && plan.menuConfirmed ? plan.dishes : [];
     const steps = plan ? [...plan.steps].sort((a, b) => a.order - b.order) : [];
     const hasMenu = dishes.length > 0;
+    const totalMinutes = steps.reduce((sum, s) => sum + (typeof s.durationMinutes === 'number' ? s.durationMinutes : 0), 0);
 
     root.innerHTML = `
       <div class="app-header app-header--meal">
@@ -1584,6 +1601,7 @@ function renderMealTab(root) {
         <div class="meal-plan-header">
           <div class="meal-plan-header__label">今日の献立</div>
           <div class="meal-plan-header__dishes">${escapeHtml(dishes.join('、'))}</div>
+          ${totalMinutes > 0 ? `<div class="meal-plan-header__total-time">合計 ${totalMinutes}分</div>` : ''}
           <button type="button" id="edit-menu" class="meal-plan-header__edit">${Icons.pencil} メニューを編集</button>
         </div>
         ${renderSteps(steps)}
@@ -2664,7 +2682,7 @@ const SCHEDULE_SCHEMA = {
           category: { type: 'STRING', enum: ['work', 'life', 'other'] },
           memo: { type: 'STRING' },
         },
-        required: ['title'],
+        required: ['title', 'startTime'],
       },
     },
   },
@@ -2793,9 +2811,17 @@ function buildScheduleSystemPrompt(date) {
   return [
     'あなたは「Daily Planner AI」という日本語アプリの、予定作成を手伝うアシスタントです。',
     `相談対象の日付: ${date}`,
-    'ユーザーとの会話を通じて、必要になった時だけ具体的なタスク案をsuggestionsに入れてください。',
-    '雑談段階や、時刻・内容がまだ曖昧な段階ではsuggestionsは空配列のままにしてください。',
-    'startTime/endTimeは "HH:MM" の24時間表記。不明な場合は空文字のままにしてください。',
+    '',
+    '【最重要ルール】ユーザーはまとめて複数の用件を話すことがあります。',
+    '「予定に入れて」「これでお願い」「これでOK」「反映して」のように、ユーザーが明確に確定・依頼の合図を出すまでは、',
+    'suggestionsは必ず空配列のままにしてください。それまでは相槌や聞き返しなど、会話の返信(reply)だけを行ってください。',
+    '確定の合図がまだ無いのに気を利かせて先回りしてsuggestionsを作ってはいけません。',
+    '',
+    '【時刻が不明な場合】確定の合図が出た時点で、含めようとしている用件のうち開始時刻が話の中で明言されていないものがあれば、',
+    'その用件はsuggestionsに入れず、reply内で「◯◯は何時からですか？」のように具体的に聞き返してください。',
+    '時刻を聞き取れている用件だけをsuggestionsに含めてください（一部だけ確定・一部だけ聞き返す、という混在も可）。',
+    '',
+    'startTime/endTimeは "HH:MM" の24時間表記。endTimeが不明な場合のみ空文字で構いません（startTimeは上記の通り必須）。',
     'categoryは "work"（仕事）"life"（生活）"other"（その他）のいずれかにしてください。',
     'この日の既存の予定:',
     eventLines,
@@ -2913,7 +2939,7 @@ function open(mode, target) {
     `;
   }
 
-  function renderMessage(m, suggestions) {
+  function renderMessage(m, suggestions, menuConfirmed) {
     if (m.role === 'user') {
       return `<div class="chat-bubble-row chat-bubble-row--user"><div class="chat-bubble chat-bubble--user">${escapeHtml(
         m.text
@@ -2925,7 +2951,11 @@ function open(mode, target) {
         <div class="chat-suggest-card chat-suggest-card--meal">
           <div class="chat-suggest-card__label">候補メニュー</div>
           <div class="chat-suggest-card__dishes">${escapeHtml(m.dishCandidates.join('、'))}</div>
-          <button type="button" class="btn btn--meal-primary btn--sm chat-confirm-menu" data-message-id="${m.id}">これで決定</button>
+          ${
+            menuConfirmed
+              ? `<button type="button" class="btn btn--meal-primary btn--sm chat-confirm-menu" data-message-id="${m.id}" disabled>決定済み</button>`
+              : `<button type="button" class="btn btn--meal-primary btn--sm chat-confirm-menu" data-message-id="${m.id}">これで決定</button>`
+          }
         </div>
       `;
     }
@@ -2948,6 +2978,7 @@ function open(mode, target) {
     const messages = getMessages(mode, date);
     const suggestions = mode === 'schedule' ? getSuggestions(date) : [];
     const phase = mode === 'meal' ? mealPhase() : null;
+    const menuConfirmed = mode === 'meal' && phase !== 'menu';
 
     modalRoot.innerHTML = `
       <div class="chat-overlay">
@@ -2957,7 +2988,7 @@ function open(mode, target) {
           ${mode === 'meal' ? `<button type="button" class="chat-header__reset" id="chat-reset">やり直す</button>` : `<span style="width:32px;"></span>`}
         </div>
         <div class="chat-messages" id="chat-messages">
-          ${messages.length === 0 ? emptyHint(mode) : messages.map((m) => renderMessage(m, suggestions)).join('')}
+          ${messages.length === 0 ? emptyHint(mode) : messages.map((m) => renderMessage(m, suggestions, menuConfirmed)).join('')}
           ${
             state.sending
               ? `<div class="chat-bubble-row chat-bubble-row--ai"><div class="chat-bubble chat-bubble--ai chat-bubble--typing">…考え中</div></div>`
@@ -3037,7 +3068,7 @@ function open(mode, target) {
         afterAssistant: (result, aiMsg) => {
           if (Array.isArray(result.suggestions)) {
             result.suggestions.forEach((sg) => {
-              if (sg && sg.title) addSuggestion(date, aiMsg.id, sg);
+              if (sg && sg.title && sg.startTime && sg.startTime.trim()) addSuggestion(date, aiMsg.id, sg);
             });
           }
         },
