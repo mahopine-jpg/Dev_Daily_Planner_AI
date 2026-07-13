@@ -1661,7 +1661,10 @@ function getEventsFor(dateStr) {
   ensureBaseScheduleInstances(dateStr);
   // 献立は MEALPLAN として別コレクションで管理するため、ここでのフィルタは不要
   // （2026-07-12: category:"meal" のEVTは廃止。旧テスト投入データが残っていても単に無視される）
-  return Storage.Collection.filter('events', (e) => e.date === dateStr).sort((a, b) =>
+  // status:'skipped'（基本スケジュール由来の予定を「この日だけ削除」した記録）は表示しない。
+  // 削除せず残すのは、ensureBaseScheduleInstances が「その日・そのテンプレートのEVTが
+  // 存在するか」だけで再生成要否を判断しているため（完全に削除すると次の描画で復活してしまう）。
+  return Storage.Collection.filter('events', (e) => e.date === dateStr && e.status !== 'skipped').sort((a, b) =>
     (a.startTime || '').localeCompare(b.startTime || '')
   );
 }
@@ -1807,9 +1810,20 @@ function renderScheduleTab(root) {
     root.querySelectorAll('.timeline__delete').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const evt = Storage.Collection.find('events', (ev) => ev.id === btn.dataset.taskId);
+        if (!evt) return;
         const ok = window.confirm('この予定を削除します。よろしいですか？');
         if (!ok) return;
-        Storage.Collection.remove('events', btn.dataset.taskId);
+        if (evt.sourceType === 'base_schedule') {
+          // 基本スケジュールの設定（テンプレート）自体は変更せず、この日のこの予定だけを
+          // 非表示にする。他の日・今後の日には引き続き反映される。
+          Storage.Collection.update('events', evt.id, {
+            status: 'skipped',
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          Storage.Collection.remove('events', evt.id);
+        }
         window.App.toast('削除しました');
         paint();
       });
@@ -2257,7 +2271,7 @@ window.Screens.ingredients = renderIngredients;
  * dataRetention.js によりアプリ起動時に自動削除される）。
  * 未作成の日は自動書き出し→ボトムシートで確認・保存。作成済みの日は
  * 「編集」（再書き出しなし）「作り直す」（最新データで再書き出し）「共有」を提供する。
- * 天気（プルダウン、手入力なし）と自由記載欄（複数行・任意）はAI/自動書き出しの対象外で、
+ * 天気（プルダウン、手入力なし）と今日のひと言欄（複数行・任意）はAI/自動書き出しの対象外で、
  * 「作り直す」を実行してもこの2つの値は保持される（予定・献立のみ再書き出しされる）。
  */
 
@@ -2303,7 +2317,7 @@ function getDiary(dateStr) {
 }
 
 /** その日のタスク（ルーティン以外）と献立プランのメニューから、日記の初期内容を組み立てる
- *  （天気・自由記載は自動書き出しの対象外のため、ここでは扱わない） */
+ *  （天気・今日のひと言は自動書き出しの対象外のため、ここでは扱わない） */
 function buildAutoContent(dateStr) {
   const events = Storage.Collection
     .filter('events', (e) => e.date === dateStr && e.sourceType !== 'base_schedule')
@@ -2393,7 +2407,7 @@ function openEditSheet(dateStr, initial, onSaved) {
           </div>
 
           <div class="field">
-            <label class="field__label" for="diary-edit-free">自由記載</label>
+            <label class="field__label" for="diary-edit-free">今日のひと言</label>
             <textarea id="diary-edit-free" class="textarea" rows="5" placeholder="なんでも自由に書けます">${escapeHtml(state.freeSection)}</textarea>
           </div>
 
@@ -2456,7 +2470,7 @@ function buildShareText(diary) {
     '【今日の献立】',
     diary.mealsSection || '',
     '',
-    '【自由記載】',
+    '【今日のひと言】',
     diary.freeSection || '',
   ].join('\n');
 }
@@ -2519,7 +2533,7 @@ function renderDiary(root) {
                    <p style="white-space:pre-wrap;">${escapeHtml(diary.mealsSection) || '（未入力）'}</p>
                  </div>
                  <div>
-                   <div class="field__label">自由記載</div>
+                   <div class="field__label">今日のひと言</div>
                    <p style="white-space:pre-wrap;">${escapeHtml(diary.freeSection) || '（未入力）'}</p>
                  </div>
                </div>
@@ -2558,7 +2572,7 @@ function renderDiary(root) {
       });
       root.querySelector('#diary-regenerate').addEventListener('click', () => {
         const ok = window.confirm(
-          '今日の予定・今日の献立を、最新の内容で書き出し直します（天気・自由記載はそのまま残ります）。保存するまでは上書きされません。よろしいですか？'
+          '今日の予定・今日の献立を、最新の内容で書き出し直します（天気・今日のひと言はそのまま残ります）。保存するまでは上書きされません。よろしいですか？'
         );
         if (!ok) return;
         openEditSheet(
@@ -2918,6 +2932,13 @@ function openBaseScheduleModal(existing, onSaved) {
           daysOfWeek: [...state.daysOfWeek],
           memo: state.memo,
         });
+        // 生成済みの予定（今日・明日など）にも、タスク名の変更だけは反映する。
+        // 開始時刻・メモはその日ごとに個別編集されている可能性があるため上書きしない。
+        Storage.Collection
+          .filter('events', (e) => e.sourceType === 'base_schedule' && e.sourceTemplateId === existing.id)
+          .forEach((e) => {
+            Storage.Collection.update('events', e.id, { title, updatedAt: now });
+          });
         window.App.toast('更新しました');
       } else {
         Storage.Collection.insert('baseSchedules', {
