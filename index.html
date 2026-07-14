@@ -2646,6 +2646,73 @@ function exportAllData() {
   downloadJson(`dailyplanner-ai_backup_${today}.json`, dump);
 }
 
+/**
+ * バックアップJSONを読み込み、現在のデータにマージ（upsert）する。
+ * - col:xxx（events/baseSchedules/ingredients/messages/suggestions/diaries/mealPlans等の配列）は
+ *   idで突き合わせ、同じidがあればバックアップ側の内容で上書き、無ければ追加する（重複させない）
+ * - idCounters は現在値とバックアップ値の大きい方を採用する（今後発行するIDが過去のものと衝突しないように）
+ * - それ以外（settings等）はバックアップ側の値でそのまま上書きする
+ * みほさんとの相談で「完全上書き」ではなく「IDで突き合わせるマージ」方式に決定（2026-07-14）
+ */
+function importAllData(dump) {
+  Object.keys(dump).forEach((k) => {
+    const incoming = dump[k];
+
+    if (k === 'idCounters' && incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+      const current = Storage.get('idCounters', {});
+      const merged = { ...current };
+      Object.keys(incoming).forEach((counterName) => {
+        merged[counterName] = Math.max(current[counterName] || 0, incoming[counterName] || 0);
+      });
+      Storage.set('idCounters', merged);
+      return;
+    }
+
+    if (k.startsWith('col:') && Array.isArray(incoming)) {
+      const collectionName = k.slice('col:'.length);
+      const current = Storage.Collection.all(collectionName);
+      const byId = new Map(current.map((item) => [item.id, item]));
+      incoming.forEach((item) => {
+        if (item && item.id) byId.set(item.id, item);
+      });
+      Storage.Collection.save(collectionName, Array.from(byId.values()));
+      return;
+    }
+
+    // settings 等、コレクション形式ではないものはそのまま上書き
+    Storage.set(k, incoming);
+  });
+}
+
+/** バックアップファイル（JSON）を選択させ、読み込んでimportAllDataに渡す */
+function handleImportFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let dump;
+    try {
+      dump = JSON.parse(reader.result);
+    } catch (e) {
+      window.App.toast('ファイルの読み込みに失敗しました。正しいバックアップファイルか確認してください。');
+      return;
+    }
+    if (!dump || typeof dump !== 'object' || Array.isArray(dump)) {
+      window.App.toast('バックアップファイルの形式が正しくないようです。');
+      return;
+    }
+    const ok = window.confirm(
+      'バックアップの内容を現在のデータに読み込みます（同じ内容のデータはバックアップ側で上書きされ、それ以外は残ります）。よろしいですか？'
+    );
+    if (!ok) return;
+    importAllData(dump);
+    window.App.toast('復元しました');
+    window.App.start();
+  };
+  reader.onerror = () => {
+    window.App.toast('ファイルの読み込みに失敗しました。');
+  };
+  reader.readAsText(file);
+}
+
 function renderSettings(root) {
   const settings = Storage.Settings.get();
   const hasKey = Storage.Settings.hasApiKey();
@@ -2682,6 +2749,9 @@ function renderSettings(root) {
         <div class="field__label">データ管理</div>
         <p class="hint">予定・献立・食材メモ・日記のバックアップをファイルに書き出せます。</p>
         <button id="settings-export" class="btn btn--outline">データをエクスポート</button>
+        <button id="settings-import" class="btn btn--outline">バックアップから復元</button>
+        <input id="settings-import-file" type="file" accept="application/json,.json" style="display:none;" />
+        <p class="hint">復元は「同じ内容のデータは上書き・それ以外は残す」形でマージされます（今のデータが消えることはありません）。</p>
         <button id="settings-delete-all" class="btn btn--danger">すべてのデータを削除</button>
       </div>
 
@@ -2717,6 +2787,17 @@ function renderSettings(root) {
 
   root.querySelector('#settings-export').addEventListener('click', () => {
     exportAllData();
+  });
+
+  root.querySelector('#settings-import').addEventListener('click', () => {
+    root.querySelector('#settings-import-file').click();
+  });
+
+  root.querySelector('#settings-import-file').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    handleImportFile(file);
+    e.target.value = ''; // 同じファイルを連続で選び直せるようにリセット
   });
 
   root.querySelector('#settings-delete-all').addEventListener('click', () => {
