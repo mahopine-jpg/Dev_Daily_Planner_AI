@@ -1694,7 +1694,7 @@ function ensureBaseScheduleInstances(dateStr) {
       sourceSuggestId: null,
       category: 'life',
       memo: tpl.memo || '',
-      rescheduleHistory: [],
+      rescheduleHistory: null, // FR-7：リスケすると{from,changedAt,note}が入る（直近1件のみ保持）
       status: 'planned',
       createdAt: now,
       updatedAt: now,
@@ -1739,6 +1739,13 @@ function renderTimeline(events) {
                     <div class="timeline__badge">${badge.label}</div>
                     <div class="timeline__title">${escapeHtml(e.title)}</div>
                     ${e.memo ? `<div class="timeline__meta">${escapeHtml(e.memo)}</div>` : ''}
+                    ${
+                      e.rescheduleHistory
+                        ? `<div class="timeline__meta">↳ ${escapeHtml(
+                            e.rescheduleHistory.from.startTime || '--:--'
+                          )}から変更</div>`
+                        : ''
+                    }
                   </div>
                 </div>
               </div>
@@ -2326,7 +2333,10 @@ function buildAutoContent(dateStr) {
   const dishes = plan ? plan.dishes || [] : [];
 
   return {
-    tasksSection: events.map((e) => `・${e.title}`).join('\n'),
+    // FR-7：リスケ済みのタスクは、チャット確定時に生成した一言（rescheduleHistory.note）を箇条書きの下に添える
+    tasksSection: events
+      .map((e) => (e.rescheduleHistory && e.rescheduleHistory.note ? `・${e.title}\n　${e.rescheduleHistory.note}` : `・${e.title}`))
+      .join('\n'),
     mealsSection: dishes.map((d) => `・${d}`).join('\n'),
     generatedFromTaskIds: events.map((e) => e.id),
     generatedFromMealPlanId: plan ? plan.id : null,
@@ -2974,7 +2984,7 @@ window.Screens.baseSchedule = renderBaseSchedule;
  * taskEditor.js
  * 予定タブの「＋」ボタン、および既存タスクのタップから開く追加・編集モーダル（ボトムシート）。FR-6対応。
  * 献立プランの編集は mealPlanEditor.js に分離した（2026-07-12、献立モデル再設計に伴う変更）。
- * リスケ（FR-7・rescheduleHistoryの記録）は次フェーズで対応する。
+ * ここでの時刻変更はリスケ（FR-7）の履歴対象外。リスケ履歴（rescheduleHistory）はチャット経由（chatPanel.js）のみで記録する。
  */
 
 (function () {
@@ -3090,7 +3100,7 @@ function renderTaskEditor(root, options) {
         sourceSuggestId: null,
         category: 'other',
         memo: state.memo,
-        rescheduleHistory: [],
+        rescheduleHistory: null, // FR-7：手動編集での時刻変更はリスケ履歴の対象外（チャット経由のみ記録）
         status: 'planned',
         createdAt: now,
         updatedAt: now,
@@ -3409,6 +3419,8 @@ window.MealPlanEditor = {
  * 相談チャットの共通UI（予定/献立どちらのモードでも使う）。FR-1・FR-2対応。
  * - 会話履歴（MSG）・AI提案（SUGGEST）は chatMode（schedule/meal）× date（対象日）で完全分離
  * - 予定チャット：構造化提案 → ユーザーが「反映する」を選択 → EVT生成
+ * - 予定チャット：リスケ（FR-7・時刻変更のみ、第一弾）にも対応。「寝坊した」等の自然文からrescheduleSuggestionsを
+ *   構造化出力させ、対象EVTのstartTimeのみ変更する（BASEテンプレートは不変）。中止（スキップ）は次フェーズで対応
  * - 献立チャット：フェーズ1（メニュー相談→「これで決定」）→フェーズ2（「段取りを作って」→自動反映）
  * - Gemini APIへは responseMimeType:"application/json" + responseSchema で構造化出力を要求する
  *   （設計書8.3のマーカー方式は今回は不採用。JSON Schema指定の方が解析が確実なため）
@@ -3459,6 +3471,7 @@ function addSuggestion(date, sourceMessageId, data) {
     chatMode: 'schedule',
     date,
     sourceMessageId,
+    type: 'create', // FR-7：新規作成の提案。リスケ提案は type:'reschedule'（下記addRescheduleSuggestion参照）
     title: data.title,
     startTime: data.startTime || null,
     endTime: data.endTime || null,
@@ -3485,7 +3498,7 @@ function applySuggestion(sug) {
     sourceSuggestId: sug.id,
     category: sug.category || 'other',
     memo: sug.memo || '',
-    rescheduleHistory: [],
+    rescheduleHistory: null, // FR-7：リスケすると{from,changedAt,note}が入る（直近1件のみ保持）
     status: 'planned',
     createdAt: now,
     updatedAt: now,
@@ -3497,6 +3510,72 @@ function applySuggestion(sug) {
 
 function dismissSuggestion(sug) {
   Storage.Collection.update('suggestions', sug.id, { status: 'dismissed' });
+}
+
+/* ------------------------------------------------------------------ */
+/* FR-7：タスクのリスケジュール（時刻変更）                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 日記に載せる一言を、状況パターン（enum）ごとの固定テンプレートに、
+ * チャットから抽出した理由フレーズを差し込んで組み立てる。
+ * AIには文面そのものを自由生成させず、situationType（分類）とreasonPhrase（抽出）だけを返させることで、
+ * 不自然な言い回しや誤情報のリスクを抑える（みほさんとの相談で確定した方針）。
+ * situationTypeは今回のフェーズでは 'postpone'（後ろ倒し）のみ有効。'cancel'（中止）は次フェーズで対応。
+ */
+function buildRescheduleNote(situationType, reasonPhrase, title, newStartTime) {
+  const reason = (reasonPhrase || '').trim();
+  if (situationType === 'cancel') {
+    return reason ? `${reason}のため、${title}を中止しました` : `${title}を中止しました`;
+  }
+  return reason ? `${reason}のため、${title}を${newStartTime}に変更しました` : `${title}を${newStartTime}に変更しました`;
+}
+
+/** リスケ提案（SUGGEST, type:'reschedule'）を追加する。targetEventは提案時点の元タスク（表示用に情報を控えておく） */
+function addRescheduleSuggestion(date, sourceMessageId, data, targetEvent) {
+  const sug = {
+    id: IdGenerator.generateId('suggestion'),
+    chatMode: 'schedule',
+    date,
+    sourceMessageId,
+    type: 'reschedule',
+    targetEventId: targetEvent.id,
+    targetEventTitle: targetEvent.title,
+    previousStartTime: targetEvent.startTime,
+    newStartTime: data.newStartTime,
+    situationType: data.situationType === 'cancel' ? 'cancel' : 'postpone',
+    note: buildRescheduleNote(data.situationType, data.reasonPhrase, targetEvent.title, data.newStartTime),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  Storage.Collection.insert('suggestions', sug);
+  return sug;
+}
+
+/**
+ * リスケ提案を反映する。対象EVTのstartTimeを変更し、rescheduleHistoryに
+ * 変更前の値・一言コメントを記録する（直近1件のみ保持。配列にはしない＝みほさんとの相談で確定）。
+ * 基本スケジュール由来のタスクでも、この日のEVTインスタンスだけを変更し、BASEテンプレートには触れない。
+ */
+function applyRescheduleSuggestion(sug) {
+  const evt = Storage.Collection.find('events', (e) => e.id === sug.targetEventId);
+  if (!evt) {
+    // 対象タスクが既に削除済み等の場合は反映できない
+    Storage.Collection.update('suggestions', sug.id, { status: 'dismissed' });
+    return null;
+  }
+  const now = new Date().toISOString();
+  Storage.Collection.update('events', evt.id, {
+    startTime: sug.newStartTime,
+    rescheduleHistory: {
+      from: { date: evt.date, startTime: evt.startTime },
+      changedAt: now,
+      note: sug.note,
+    },
+    updatedAt: now,
+  });
+  Storage.Collection.update('suggestions', sug.id, { status: 'applied' });
+  return evt;
 }
 
 /** 献立チャットの「やり直す」：対象日のMEALPLANと、対象日・献立モードの会話履歴を削除する */
@@ -3555,6 +3634,20 @@ const SCHEDULE_SCHEMA = {
           memo: { type: 'STRING' },
         },
         required: ['title', 'startTime'],
+      },
+    },
+    // FR-7：既存タスクの時刻変更（リスケ）提案。新規作成のsuggestionsとは別枠で返させる
+    rescheduleSuggestions: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          targetEventId: { type: 'STRING' }, // 下記プロンプトで渡す「この日の既存の予定」の [EVT-xxxxxx] をそのまま使う
+          newStartTime: { type: 'STRING' }, // "HH:MM"
+          situationType: { type: 'STRING', enum: ['postpone'] }, // 今回のフェーズはpostpone（後ろ倒し）のみ
+          reasonPhrase: { type: 'STRING' }, // ユーザーの発言から抽出した理由の短いフレーズ。無ければ空文字
+        },
+        required: ['targetEventId', 'newStartTime'],
       },
     },
   },
@@ -3676,18 +3769,20 @@ async function callGemini({ apiKey, systemInstruction, history, responseSchema }
 /* ------------------------------------------------------------------ */
 
 function buildScheduleSystemPrompt(date) {
-  const events = Storage.Collection.filter('events', (e) => e.date === date).sort((a, b) =>
+  const events = Storage.Collection.filter('events', (e) => e.date === date && e.status !== 'skipped').sort((a, b) =>
     (a.startTime || '').localeCompare(b.startTime || '')
   );
-  const eventLines = events.length ? events.map((e) => `- ${e.startTime || '未定'} ${e.title}`).join('\n') : '（まだ予定はありません）';
+  const eventLines = events.length
+    ? events.map((e) => `- [${e.id}] ${e.startTime || '未定'} ${e.title}`).join('\n')
+    : '（まだ予定はありません）';
   return [
     'あなたは「Daily Planner AI」という日本語アプリの、予定作成を手伝うアシスタントです。',
     `相談対象の日付: ${date}`,
     '',
     '【最重要ルール】ユーザーはまとめて複数の用件を話すことがあります。',
     '「予定に入れて」「これでお願い」「これでOK」「反映して」のように、ユーザーが明確に確定・依頼の合図を出すまでは、',
-    'suggestionsは必ず空配列のままにしてください。それまでは相槌や聞き返しなど、会話の返信(reply)だけを行ってください。',
-    '確定の合図がまだ無いのに気を利かせて先回りしてsuggestionsを作ってはいけません。',
+    'suggestions・rescheduleSuggestionsは必ず空配列のままにしてください。それまでは相槌や聞き返しなど、会話の返信(reply)だけを行ってください。',
+    '確定の合図がまだ無いのに気を利かせて先回りしてsuggestions・rescheduleSuggestionsを作ってはいけません。',
     '',
     '【時刻が不明な場合】確定の合図が出た時点で、含めようとしている用件のうち開始時刻が話の中で明言されていないものがあれば、',
     'その用件はsuggestionsに入れず、reply内で「◯◯は何時からですか？」のように具体的に聞き返してください。',
@@ -3695,6 +3790,19 @@ function buildScheduleSystemPrompt(date) {
     '',
     'startTime/endTimeは "HH:MM" の24時間表記。endTimeが不明な場合のみ空文字で構いません（startTimeは上記の通り必須）。',
     'categoryは "work"（仕事）"life"（生活）"other"（その他）のいずれかにしてください。',
+    '',
+    '【リスケ（既存タスクの時刻変更）について】',
+    '「寝坊した」「◯時からリスケして」「後ろ倒しにして」のように、既に登録されている予定の時刻を変えてほしい相談を受けたら、',
+    'rescheduleSuggestionsを使ってください（新規のsuggestionsとは別枠です）。',
+    '「今日のタスクを全部後ろ倒しして」のように対象が曖昧な場合は、いきなり全部を対象にせず、',
+    '下記の「この日の既存の予定」の中からずらすべきと考えられるものを判断し、reply内で「〇〇と△△を□時からに変更しますが、よろしいですか？」のように',
+    '対象を明示して確認してから、確定の合図が出た時点でrescheduleSuggestionsに入れてください。',
+    'targetEventIdには、下記の「この日の既存の予定」に記載されている [EVT-xxxxxx] の形のIDをそのまま入れてください（IDは絶対に自分で作らない）。',
+    'newStartTimeは変更後の開始時刻（"HH:MM"）。',
+    'situationTypeは常に "postpone" にしてください。',
+    'reasonPhraseには、ユーザーが話した理由を短いフレーズで抜き出してください（例：「寝坊した」「体調不良」）。理由が話されていなければ空文字にしてください。',
+    '理由やAI側の言い回しを付け加えたり、フレーズを言い換えたりせず、実際にユーザーが使った表現に近い短い言葉のまま抜き出してください。',
+    '',
     'この日の既存の予定:',
     eventLines,
     '返答は必ず親しみやすい日本語の文章（reply）にしてください。',
@@ -3780,7 +3888,40 @@ function open(mode, target) {
     return 'done';
   }
 
+  function renderRescheduleSuggestionCard(s) {
+    const timeChangeLabel = `${escapeHtml(s.previousStartTime || '--:--')} → ${escapeHtml(s.newStartTime)}`;
+    if (s.status === 'applied') {
+      return `
+        <div class="chat-suggest-card">
+          <div class="chat-suggest-card__title">${escapeHtml(s.targetEventTitle)}</div>
+          <div class="chat-suggest-card__time">${timeChangeLabel}</div>
+          <div class="chat-suggest-card__status">反映済み</div>
+        </div>
+      `;
+    }
+    if (s.status === 'dismissed') {
+      return `
+        <div class="chat-suggest-card is-dismissed">
+          <div class="chat-suggest-card__title">${escapeHtml(s.targetEventTitle)}</div>
+          <div class="chat-suggest-card__status">見送りました</div>
+        </div>
+      `;
+    }
+    return `
+      <div class="chat-suggest-card">
+        <div class="chat-suggest-card__label">リスケの提案</div>
+        <div class="chat-suggest-card__title">${escapeHtml(s.targetEventTitle)}</div>
+        <div class="chat-suggest-card__time">${timeChangeLabel}</div>
+        <div class="chat-suggest-card__actions">
+          <button type="button" class="btn btn--primary btn--sm chat-apply-suggest" data-suggest-id="${s.id}">反映する</button>
+          <button type="button" class="btn btn--outline btn--sm chat-dismiss-suggest" data-suggest-id="${s.id}">反映しない</button>
+        </div>
+      </div>
+    `;
+  }
+
   function renderSuggestionCard(s) {
+    if (s.type === 'reschedule') return renderRescheduleSuggestionCard(s);
     const timeLabel = s.startTime ? s.startTime + (s.endTime ? `〜${s.endTime}` : '') : '時刻未定';
     if (s.status === 'applied') {
       return `
@@ -3943,6 +4084,18 @@ function open(mode, target) {
               if (sg && sg.title && sg.startTime && sg.startTime.trim()) addSuggestion(date, aiMsg.id, sg);
             });
           }
+          if (Array.isArray(result.rescheduleSuggestions)) {
+            result.rescheduleSuggestions.forEach((rs) => {
+              if (!rs || !rs.targetEventId || !rs.newStartTime || !rs.newStartTime.trim()) return;
+              // AIがIDを取り違えている可能性があるため、この日の実在タスクかどうかを必ず確認する
+              const targetEvent = Storage.Collection.find(
+                'events',
+                (e) => e.id === rs.targetEventId && e.date === date && e.status !== 'skipped'
+              );
+              if (!targetEvent) return;
+              addRescheduleSuggestion(date, aiMsg.id, rs, targetEvent);
+            });
+          }
         },
       });
     } else {
@@ -4028,8 +4181,13 @@ function open(mode, target) {
       btn.addEventListener('click', () => {
         const sug = Storage.Collection.find('suggestions', (s) => s.id === btn.dataset.suggestId);
         if (!sug) return;
-        applySuggestion(sug);
-        window.App.toast('タイムラインに反映しました');
+        if (sug.type === 'reschedule') {
+          const evt = applyRescheduleSuggestion(sug);
+          window.App.toast(evt ? 'リスケを反映しました' : 'この予定はすでに削除されているため反映できませんでした');
+        } else {
+          applySuggestion(sug);
+          window.App.toast('タイムラインに反映しました');
+        }
         paint();
       });
     });
