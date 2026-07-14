@@ -2340,11 +2340,16 @@ function buildAutoContent(dateStr) {
   const dishes = plan ? plan.dishes || [] : [];
 
   return {
-    // FR-7：リスケ済みのタスクは、チャット確定時に生成した一言（rescheduleHistory.note）を箇条書きの下に添える。
-    // 基本スケジュール由来でリスケ済みのものは、タスク名は載せず一言だけを載せる（家事の定型リストを毎日書き出したくないため）
+    // FR-7：リスケ・中止済みのタスクは、チャット確定時に生成した一言（rescheduleHistory.note）を反映する。
+    // - 中止済み（status:'skipped'）は、一言の中にタスク名が含まれているため、タイトルの箇条書きは重複するので出さず一言だけ載せる
+    // - 基本スケジュール由来でリスケ済みのものも同様に、タスク名は載せず一言だけを載せる（家事の定型リストを毎日書き出したくないため）
+    // - それ以外（postponeで生きている一回限りのタスク）は、タイトル＋一言の両方を載せる
     tasksSection: events
       .map((e) => {
         const hasNote = e.rescheduleHistory && e.rescheduleHistory.from && e.rescheduleHistory.note;
+        if (e.status === 'skipped') {
+          return hasNote ? `・${e.rescheduleHistory.note}` : null;
+        }
         if (e.sourceType === 'base_schedule') {
           return hasNote ? `・${e.rescheduleHistory.note}` : null;
         }
