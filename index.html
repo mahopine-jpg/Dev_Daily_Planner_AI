@@ -1740,7 +1740,7 @@ function renderTimeline(events) {
                     <div class="timeline__title">${escapeHtml(e.title)}</div>
                     ${e.memo ? `<div class="timeline__meta">${escapeHtml(e.memo)}</div>` : ''}
                     ${
-                      e.rescheduleHistory
+                      e.rescheduleHistory && e.rescheduleHistory.from
                         ? `<div class="timeline__meta">↳ ${escapeHtml(
                             e.rescheduleHistory.from.startTime || '--:--'
                           )}から変更</div>`
@@ -2335,7 +2335,11 @@ function buildAutoContent(dateStr) {
   return {
     // FR-7：リスケ済みのタスクは、チャット確定時に生成した一言（rescheduleHistory.note）を箇条書きの下に添える
     tasksSection: events
-      .map((e) => (e.rescheduleHistory && e.rescheduleHistory.note ? `・${e.title}\n　${e.rescheduleHistory.note}` : `・${e.title}`))
+      .map((e) =>
+        e.rescheduleHistory && e.rescheduleHistory.from && e.rescheduleHistory.note
+          ? `・${e.title}\n　${e.rescheduleHistory.note}`
+          : `・${e.title}`
+      )
       .join('\n'),
     mealsSection: dishes.map((d) => `・${d}`).join('\n'),
     generatedFromTaskIds: events.map((e) => e.id),
