@@ -2142,10 +2142,12 @@ function openIngredientModal(existing, onSaved) {
   function close(shouldRefresh) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
@@ -2484,9 +2486,11 @@ function openEditSheet(dateStr, initial, onSaved) {
   function close() {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 /** 共有・エクスポート用のテキストを組み立てる（日付・天気・各セクションに見出しを付ける） */
@@ -3071,10 +3075,12 @@ function openBaseScheduleModal(existing, onSaved) {
   function close(shouldRefresh) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 window.Screens = window.Screens || {};
@@ -3217,12 +3223,14 @@ function renderTaskEditor(root, options) {
   function close(shouldRefresh) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     root.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     if (shouldRefresh && typeof options.onSaved === 'function') {
       options.onSaved();
     }
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 window.Screens = window.Screens || {};
@@ -3394,10 +3402,12 @@ function openDishesEditor(dateStr, onSaved) {
   function close(shouldRefresh) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 /** 工程（1件）の追加・編集シート */
@@ -3501,10 +3511,12 @@ function openStepEditor(dateStr, stepId, onSaved) {
   function close(shouldRefresh) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 window.MealPlanEditor = {
@@ -4153,6 +4165,7 @@ function open(mode, target) {
   function closeAndGoTo(routeKey) {
     if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
+    if (window.App && window.App.nudgeViewport) window.App.nudgeViewport();
     window.location.hash = `#/${routeKey}`;
     window.App.refresh();
   }
@@ -4341,6 +4354,7 @@ function open(mode, target) {
   }
 
   paint();
+  if (window.App && window.App.nudgeViewport) window.App.nudgeViewport(300); // モーダルを開いた直後にも同じ余白バグ対策を適用
 }
 
 window.ChatPanel = { open };
@@ -4422,6 +4436,26 @@ function toast(message) {
   toast._t = setTimeout(() => el.classList.remove('is-visible'), 2200);
 }
 
+/**
+ * iOS Safari対策：モーダル（ボトムシート）の開閉直後、アドレスバーの伸縮やキーボードの
+ * 開閉とレイアウトの再計算がズレて、画面下部に本来ないはずの余白（未ペイント領域）が
+ * 残ることがある。指を使って画面を少し引っ張る（オーバースクロール）と直ることから、
+ * それと同じ効果を1px分のスクロールで疑似的に発生させ、強制的に再描画させる。
+ * delayMs：シートの開閉アニメーション（0.22s）やキーボードの開閉アニメーションが
+ * 終わるのを待ってから実行するための猶予（指定なしの場合は即時実行）。
+ */
+function nudgeViewport(delayMs) {
+  const run = () => {
+    window.scrollTo(0, 1);
+    requestAnimationFrame(() => window.scrollTo(0, 0));
+  };
+  if (delayMs) {
+    setTimeout(run, delayMs);
+  } else {
+    run();
+  }
+}
+
 /** チャットを開く。予定/献立モードは呼び出し元で固定され、履歴は独立管理される */
 function openChat(mode, target) {
   if (!Storage.Settings.hasApiKey()) {
@@ -4465,6 +4499,7 @@ window.App = {
   toast,
   openChat,
   openTaskEditor,
+  nudgeViewport,
   navigate: (k) => (window.location.hash = `#/${k}`),
   refresh: () => paintRoute(),
 };
