@@ -2140,6 +2140,7 @@ function openIngredientModal(existing, onSaved) {
   }
 
   function close(shouldRefresh) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
@@ -2481,6 +2482,7 @@ function openEditSheet(dateStr, initial, onSaved) {
   }
 
   function close() {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
   }
 
@@ -3067,6 +3069,7 @@ function openBaseScheduleModal(existing, onSaved) {
   }
 
   function close(shouldRefresh) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
@@ -3212,6 +3215,7 @@ function renderTaskEditor(root, options) {
   }
 
   function close(shouldRefresh) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     root.innerHTML = '';
     if (shouldRefresh && typeof options.onSaved === 'function') {
       options.onSaved();
@@ -3388,6 +3392,7 @@ function openDishesEditor(dateStr, onSaved) {
   }
 
   function close(shouldRefresh) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
@@ -3494,6 +3499,7 @@ function openStepEditor(dateStr, stepId, onSaved) {
   }
 
   function close(shouldRefresh) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
     if (shouldRefresh && typeof onSaved === 'function') onSaved();
   }
@@ -4145,6 +4151,7 @@ function open(mode, target) {
   }
 
   function closeAndGoTo(routeKey) {
+    if (document.activeElement) document.activeElement.blur(); // iOS Safari: フォーカス中の入力欄をDOMごと消すとキーボード分の空白が下部に残るバグ対策
     modalRoot.innerHTML = '';
     window.location.hash = `#/${routeKey}`;
     window.App.refresh();
