@@ -2145,8 +2145,6 @@ function openIngredientModal(existing, onSaved) {
 
     if (existing) {
       modalRoot.querySelector('#ing-delete').addEventListener('click', () => {
-        const ok = window.confirm('この食材メモを削除します。よろしいですか？');
-        if (!ok) return;
         Storage.Collection.remove('ingredients', existing.id);
         window.App.toast('削除しました');
         close(true);
@@ -2320,8 +2318,6 @@ function renderIngredients(root, forceResort = true) {
   root.querySelectorAll('.ingredient-delete').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const ok = window.confirm('この食材メモを削除します。よろしいですか？');
-      if (!ok) return;
       Storage.Collection.remove('ingredients', btn.dataset.ingredientId);
       window.App.toast('削除しました');
       renderIngredients(root, false);
