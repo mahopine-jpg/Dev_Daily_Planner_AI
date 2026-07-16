@@ -871,12 +871,18 @@ input[type="date"] {
   max-width: 60%;
 }
 
-.ingredient-row__memo {
+.ingredient-row__meta {
   font-size: 12px;
   color: var(--ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  white-space: nowrap;
+}
+
+.ingredient-row__meta--soon {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .ingredient-row__delete {
@@ -1465,6 +1471,13 @@ function resolveTarget(target) {
   return target === 'tomorrow' ? tomorrowStr() : todayStr();
 }
 
+/** fromStr（YYYY-MM-DD）からtoStr（YYYY-MM-DD）までの日数差を返す（食材の消費期限が近いかどうかの判定などに使用） */
+function daysBetween(fromStr, toStr) {
+  const from = new Date(fromStr + 'T00:00:00');
+  const to = new Date(toStr + 'T00:00:00');
+  return Math.round((to - from) / (1000 * 60 * 60 * 24));
+}
+
 function dayOfWeekKey(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return DOW_KEYS[d.getDay()];
@@ -1481,6 +1494,7 @@ window.DateUtils = {
   todayStr,
   tomorrowStr,
   addDays,
+  daysBetween,
   resolveTarget,
   dayOfWeekKey,
   formatDateLabel,
@@ -2033,6 +2047,13 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+/** 消費期限（YYYY-MM-DD）を一覧表示用に「M/D」形式へ整形する */
+function formatExpiryForList(expiryDate) {
+  const parts = expiryDate.split('-');
+  if (parts.length !== 3) return expiryDate;
+  return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}まで`;
+}
+
 /** 食材メモの追加・編集モーダル（画面遷移ではなくモーダルのため、taskEditorとは別に軽量に実装） */
 function openIngredientModal(existing, onSaved) {
   const modalRoot = document.getElementById('modal-root');
@@ -2040,11 +2061,13 @@ function openIngredientModal(existing, onSaved) {
 
   const state = {
     name: existing ? existing.name || '' : '',
-    memo: existing ? existing.memo || '' : '',
+    storage: existing && existing.storage ? existing.storage : 'room',
+    expiryDate: existing ? existing.expiryDate || '' : '',
     priority: existing && existing.priority ? existing.priority : 'normal',
   };
 
   const PRIORITY_LABELS = { high: '高', normal: '中', low: '低' };
+  const STORAGE_LABELS = { room: '常温', fridge: '冷蔵', freezer: '冷凍' };
 
   function paint() {
     modalRoot.innerHTML = `
@@ -2060,8 +2083,22 @@ function openIngredientModal(existing, onSaved) {
             <input id="ing-name" class="input" type="text" value="${escapeHtml(state.name)}" placeholder="例：鶏むね肉" />
           </div>
           <div class="field">
-            <label class="field__label" for="ing-memo">メモ（任意）</label>
-            <input id="ing-memo" class="input" type="text" value="${escapeHtml(state.memo)}" placeholder="例：賞味期限が近い" />
+            <label class="field__label">保管</label>
+            <div class="segmented">
+              ${Object.keys(STORAGE_LABELS)
+                .map(
+                  (key) => `
+                <button type="button" class="segmented__option storage-option ${state.storage === key ? 'is-selected' : ''}" data-storage="${key}">${STORAGE_LABELS[key]}</button>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+          <div class="field">
+            <label class="field__label" for="ing-expiry">消費期限（任意）</label>
+            <div class="time-input-wrap">
+              <input id="ing-expiry" class="input" type="date" value="${escapeHtml(state.expiryDate)}" />
+            </div>
           </div>
           <div class="field">
             <label class="field__label">優先度</label>
@@ -2090,8 +2127,14 @@ function openIngredientModal(existing, onSaved) {
     modalRoot.querySelector('#ing-name').addEventListener('input', (e) => {
       state.name = e.target.value;
     });
-    modalRoot.querySelector('#ing-memo').addEventListener('input', (e) => {
-      state.memo = e.target.value;
+    modalRoot.querySelector('#ing-expiry').addEventListener('input', (e) => {
+      state.expiryDate = e.target.value;
+    });
+    modalRoot.querySelectorAll('.storage-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.storage = btn.dataset.storage;
+        paint();
+      });
     });
     modalRoot.querySelectorAll('.priority-option').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -2120,7 +2163,8 @@ function openIngredientModal(existing, onSaved) {
       if (existing) {
         Storage.Collection.update('ingredients', existing.id, {
           name,
-          memo: state.memo.trim(),
+          storage: state.storage,
+          expiryDate: state.expiryDate || null,
           priority: state.priority,
           updatedAt: now,
         });
@@ -2129,7 +2173,8 @@ function openIngredientModal(existing, onSaved) {
         Storage.Collection.insert('ingredients', {
           id: IdGenerator.generateId('ingredient'),
           name,
-          memo: state.memo.trim(),
+          storage: state.storage,
+          expiryDate: state.expiryDate || null,
           priority: state.priority,
           createdAt: now,
         });
@@ -2153,6 +2198,8 @@ function openIngredientModal(existing, onSaved) {
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
 const PRIORITY_LABELS_LIST = { high: '高', normal: '中', low: '低' };
 const PRIORITY_CYCLE = { high: 'normal', normal: 'low', low: 'high' };
+const STORAGE_LABELS_LIST = { room: '常温', fridge: '冷蔵', freezer: '冷凍' };
+const EXPIRY_SOON_DAYS = 3; // この日数以内に消費期限が来る場合、一覧で強調表示する
 
 /**
  * 一覧の並び順キャッシュ。
@@ -2170,6 +2217,10 @@ function computeSortedIds(items) {
       const pa = PRIORITY_ORDER[a.priority] ?? PRIORITY_ORDER.normal;
       const pb = PRIORITY_ORDER[b.priority] ?? PRIORITY_ORDER.normal;
       if (pa !== pb) return pa - pb;
+      // 同一優先度内では消費期限が近い順（未設定は最後）
+      const ea = a.expiryDate || '9999-99-99';
+      const eb = b.expiryDate || '9999-99-99';
+      if (ea !== eb) return ea < eb ? -1 : 1;
       return (a.createdAt || '').localeCompare(b.createdAt || '');
     })
     .map((i) => i.id);
@@ -2214,6 +2265,16 @@ function renderIngredients(root, forceResort = true) {
           : `<div class="ingredient-list">${orderedItems
               .map((i) => {
                 const priority = i.priority && PRIORITY_LABELS_LIST[i.priority] ? i.priority : 'normal';
+                const storageLabel = i.storage && STORAGE_LABELS_LIST[i.storage] ? STORAGE_LABELS_LIST[i.storage] : '';
+                const metaParts = [];
+                if (storageLabel) metaParts.push(storageLabel);
+                let expirySoon = false;
+                if (i.expiryDate) {
+                  metaParts.push(formatExpiryForList(i.expiryDate));
+                  const daysLeft = DateUtils.daysBetween(DateUtils.todayStr(), i.expiryDate);
+                  expirySoon = daysLeft !== null && daysLeft <= EXPIRY_SOON_DAYS;
+                }
+                const metaText = metaParts.join(' ・ ');
                 return `
               <div class="ingredient-row" data-ingredient-id="${i.id}">
                 <button type="button" class="ingredient-row__priority ingredient-row__priority--${priority}"
@@ -2221,7 +2282,7 @@ function renderIngredients(root, forceResort = true) {
                   aria-label="優先度：${PRIORITY_LABELS_LIST[priority]}（タップで切替）">${PRIORITY_LABELS_LIST[priority]}</button>
                 <div class="ingredient-row__body" data-open-ingredient-id="${i.id}">
                   <span class="ingredient-row__name">${escapeHtml(i.name)}</span>
-                  ${i.memo ? `<span class="ingredient-row__memo">${escapeHtml(i.memo)}</span>` : ''}
+                  ${metaText ? `<span class="ingredient-row__meta${expirySoon ? ' ingredient-row__meta--soon' : ''}">${escapeHtml(metaText)}</span>` : ''}
                 </div>
                 <button class="ingredient-row__delete ingredient-delete" data-ingredient-id="${i.id}" aria-label="削除">${Icons.close}</button>
               </div>`;
@@ -3940,14 +4001,21 @@ function buildScheduleSystemPrompt(date) {
 function buildMealMenuSystemPrompt(date) {
   const ingredients = Storage.Collection.all('ingredients');
   const ingLines = ingredients.length
-    ? ingredients.map((i) => `- ${i.name}${i.memo ? `（${i.memo}）` : ''}［優先度:${i.priority || 'normal'}］`).join('\n')
+    ? ingredients
+        .map((i) => {
+          const storageLabel = { room: '常温', fridge: '冷蔵', freezer: '冷凍' }[i.storage] || '';
+          const expiryLabel = i.expiryDate ? `消費期限:${i.expiryDate}` : '';
+          const detail = [storageLabel, expiryLabel].filter(Boolean).join('・');
+          return `- ${i.name}${detail ? `（${detail}）` : ''}［優先度:${i.priority || 'normal'}］`;
+        })
+        .join('\n')
     : '（食材メモは登録されていません）';
   const plan = window.MealPlanEditor.getMealPlan(date);
   const existingDishes = plan && plan.dishes && plan.dishes.length ? plan.dishes.join('、') : 'まだ決まっていません';
   return [
     'あなたは「Daily Planner AI」という日本語アプリの、献立（作る料理）決めを手伝うアシスタントです。',
     `相談対象の日付: ${date}`,
-    '登録されている食材メモ（優先度が高いものを優先的に使うとよい）:',
+    '登録されている食材メモ（優先度が高いもの、消費期限が近いものを優先的に使うとよい）:',
     ingLines,
     `現在の候補メニュー: ${existingDishes}`,
     'ユーザーとの相談を通じて、作る料理名の候補が具体的に固まったときだけdishCandidatesに料理名のみを入れてください。',
