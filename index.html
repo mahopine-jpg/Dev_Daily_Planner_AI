@@ -47,6 +47,13 @@
   --success: #6FA07C;
   --danger: #C2665F;
 
+  --storage-room: #B08B5A;       /* 常温：温かみのあるベージュ系 */
+  --storage-room-pale: #F3E9DA;
+  --storage-fridge: #4E8FB0;     /* 冷蔵：中間の寒色（水色寄り） */
+  --storage-fridge-pale: #E1EEF4;
+  --storage-freezer: #2F5F8A;    /* 冷凍：冷蔵よりはっきり濃い寒色（凍った感じ） */
+  --storage-freezer-pale: #DCE9F5;
+
   /* --- Type --- */
   --font-display: 'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif;
   --font-body: 'M PLUS Rounded 1c', 'Zen Maru Gothic', sans-serif;
@@ -856,7 +863,7 @@ input[type="date"] {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   overflow: hidden;
   white-space: nowrap;
@@ -878,11 +885,44 @@ input[type="date"] {
   text-overflow: ellipsis;
   min-width: 0;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .ingredient-row__meta--soon {
   color: var(--danger);
   font-weight: 700;
+}
+
+.storage-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid transparent;
+  line-height: 1.6;
+}
+
+.storage-badge--room {
+  background: var(--storage-room-pale);
+  border-color: var(--storage-room);
+  color: var(--storage-room);
+}
+
+.storage-badge--fridge {
+  background: var(--storage-fridge-pale);
+  border-color: var(--storage-fridge);
+  color: var(--storage-fridge);
+}
+
+.storage-badge--freezer {
+  background: var(--storage-freezer-pale);
+  border-color: var(--storage-freezer);
+  color: var(--storage-freezer);
 }
 
 .ingredient-row__delete {
@@ -2263,16 +2303,16 @@ function renderIngredients(root, forceResort = true) {
           : `<div class="ingredient-list">${orderedItems
               .map((i) => {
                 const priority = i.priority && PRIORITY_LABELS_LIST[i.priority] ? i.priority : 'normal';
-                const storageLabel = i.storage && STORAGE_LABELS_LIST[i.storage] ? STORAGE_LABELS_LIST[i.storage] : '';
-                const metaParts = [];
-                if (storageLabel) metaParts.push(storageLabel);
+                const storageKey = i.storage && STORAGE_LABELS_LIST[i.storage] ? i.storage : 'room';
+                const storageLabel = STORAGE_LABELS_LIST[storageKey];
+                const storageBadge = `<span class="storage-badge storage-badge--${storageKey}">${storageLabel}</span>`;
+                let expiryText = '';
                 let expirySoon = false;
                 if (i.expiryDate) {
-                  metaParts.push(formatExpiryForList(i.expiryDate));
+                  expiryText = formatExpiryForList(i.expiryDate);
                   const daysLeft = DateUtils.daysBetween(DateUtils.todayStr(), i.expiryDate);
                   expirySoon = daysLeft !== null && daysLeft <= EXPIRY_SOON_DAYS;
                 }
-                const metaText = metaParts.join(' ・ ');
                 return `
               <div class="ingredient-row" data-ingredient-id="${i.id}">
                 <button type="button" class="ingredient-row__priority ingredient-row__priority--${priority}"
@@ -2280,7 +2320,7 @@ function renderIngredients(root, forceResort = true) {
                   aria-label="優先度：${PRIORITY_LABELS_LIST[priority]}（タップで切替）">${PRIORITY_LABELS_LIST[priority]}</button>
                 <div class="ingredient-row__body" data-open-ingredient-id="${i.id}">
                   <span class="ingredient-row__name">${escapeHtml(i.name)}</span>
-                  ${metaText ? `<span class="ingredient-row__meta${expirySoon ? ' ingredient-row__meta--soon' : ''}">${escapeHtml(metaText)}</span>` : ''}
+                  <span class="ingredient-row__meta">${storageBadge}${expiryText ? `<span class="${expirySoon ? 'ingredient-row__meta--soon' : ''}">${escapeHtml(expiryText)}</span>` : ''}</span>
                 </div>
                 <button class="ingredient-row__delete ingredient-delete" data-ingredient-id="${i.id}" aria-label="削除">${Icons.close}</button>
               </div>`;
@@ -2792,6 +2832,68 @@ function handleImportFile(file) {
   reader.readAsText(file);
 }
 
+/**
+ * 食材メモ専用の独立したインポート機能（2026-07-16新設）。
+ * 既存のバックアップ復元（importAllData/handleImportFile、上記）とはコード・データ形式とも完全に分離している。
+ * バックアップ復元は「予定・献立・日記等すべてのデータをマージする」共通の仕組みのため、
+ * 誤操作時の影響範囲が大きい。食材メモの入れ替えだけを目的とした操作でこの共通の仕組みを使うと、
+ * 他のデータにまで影響が及ぶ不安があるという理由（みほさんとの相談）から、
+ * 「食材メモの配列だけを対象に、確認の上で完全に置き換える」という専用の関数を別途用意した。
+ *
+ * 想定する入力形式：
+ * { "ingredients": [ { "name": "...", "storage": "room"|"fridge"|"freezer", "expiryDate": "YYYY-MM-DD"|null, "priority": "high"|"normal"|"low" }, ... ] }
+ * id・createdAtはこの関数側で新規採番するため、ファイル側に含める必要はない（含まれていても無視する）。
+ */
+function importIngredientsReplace(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let dump;
+    try {
+      dump = JSON.parse(reader.result);
+    } catch (e) {
+      window.App.toast('ファイルの読み込みに失敗しました。正しい食材データファイルか確認してください。');
+      return;
+    }
+    const list = Array.isArray(dump) ? dump : dump && Array.isArray(dump.ingredients) ? dump.ingredients : null;
+    if (!list) {
+      window.App.toast('食材データファイルの形式が正しくないようです。');
+      return;
+    }
+    const validPriority = { high: 1, normal: 1, low: 1 };
+    const validStorage = { room: 1, fridge: 1, freezer: 1 };
+    const now = new Date().toISOString();
+    const newItems = list
+      .filter((it) => it && typeof it.name === 'string' && it.name.trim())
+      .map((it) => ({
+        id: IdGenerator.generateId('ingredient'),
+        name: it.name.trim(),
+        storage: validStorage[it.storage] ? it.storage : 'room',
+        expiryDate: it.expiryDate || null,
+        priority: validPriority[it.priority] ? it.priority : 'normal',
+        createdAt: now,
+      }));
+
+    if (newItems.length === 0) {
+      window.App.toast('読み込める食材データがありませんでした。');
+      return;
+    }
+
+    const currentCount = Storage.Collection.all('ingredients').length;
+    const ok = window.confirm(
+      `現在登録されている食材メモ ${currentCount}件をすべて削除し、読み込んだ ${newItems.length}件で完全に置き換えます。この操作は取り消せません。よろしいですか？`
+    );
+    if (!ok) return;
+
+    Storage.Collection.save('ingredients', newItems);
+    window.App.toast(`食材メモを${newItems.length}件で置き換えました`);
+    window.App.start();
+  };
+  reader.onerror = () => {
+    window.App.toast('ファイルの読み込みに失敗しました。');
+  };
+  reader.readAsText(file);
+}
+
 function renderSettings(root) {
   const settings = Storage.Settings.get();
   const hasKey = Storage.Settings.hasApiKey();
@@ -2832,6 +2934,13 @@ function renderSettings(root) {
         <input id="settings-import-file" type="file" accept="application/json,.json" style="display:none;" />
         <p class="hint">復元は「同じ内容のデータは上書き・それ以外は残す」形でマージされます（今のデータが消えることはありません）。</p>
         <button id="settings-delete-all" class="btn btn--danger">すべてのデータを削除</button>
+      </div>
+
+      <div class="card u-flex-col u-gap-12">
+        <div class="field__label">食材メモの一括読み込み（在庫データ）</div>
+        <p class="hint">おうちストックアプリ等から作成した食材データファイルを読み込みます。上記の「バックアップから復元」とは別の仕組みで、<strong>現在の食材メモをすべて削除してから置き換えます</strong>（予定・献立・日記など他のデータには一切影響しません）。</p>
+        <button id="settings-import-ingredients" class="btn btn--outline">食材データを読み込んで置き換える</button>
+        <input id="settings-import-ingredients-file" type="file" accept="application/json,.json" style="display:none;" />
       </div>
 
       <div class="card u-flex-col u-gap-4">
@@ -2877,6 +2986,17 @@ function renderSettings(root) {
     if (!file) return;
     handleImportFile(file);
     e.target.value = ''; // 同じファイルを連続で選び直せるようにリセット
+  });
+
+  root.querySelector('#settings-import-ingredients').addEventListener('click', () => {
+    root.querySelector('#settings-import-ingredients-file').click();
+  });
+
+  root.querySelector('#settings-import-ingredients-file').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    importIngredientsReplace(file);
+    e.target.value = '';
   });
 
   root.querySelector('#settings-delete-all').addEventListener('click', () => {
