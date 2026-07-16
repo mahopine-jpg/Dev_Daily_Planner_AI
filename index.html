@@ -2300,7 +2300,6 @@ const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
 const PRIORITY_LABELS_LIST = { high: '高', normal: '中', low: '低' };
 const PRIORITY_CYCLE = { high: 'normal', normal: 'low', low: 'high' };
 const STORAGE_LABELS_LIST = { room: '常温', fridge: '冷蔵', freezer: '冷凍' };
-const EXPIRY_SOON_DAYS = 3; // この日数以内に消費期限が来る場合、一覧で強調表示する
 
 /**
  * 一覧の並び順キャッシュ。
@@ -2373,13 +2372,8 @@ function renderIngredients(root, forceResort = true) {
                 const storageKey = i.storage && STORAGE_LABELS_LIST[i.storage] ? i.storage : 'room';
                 const storageLabel = STORAGE_LABELS_LIST[storageKey];
                 const storageBadge = `<span class="storage-badge storage-badge--${storageKey}">${storageLabel}</span>`;
-                let expiryText = '';
-                let expirySoon = false;
-                if (i.expiryDate) {
-                  expiryText = formatExpiryForList(i.expiryDate);
-                  const daysLeft = DateUtils.daysBetween(DateUtils.todayStr(), i.expiryDate);
-                  expirySoon = daysLeft !== null && daysLeft <= EXPIRY_SOON_DAYS;
-                }
+                const expiryText = i.expiryDate ? formatExpiryForList(i.expiryDate) : '';
+                const expirySoon = priority === 'high'; // 【2026-07-16変更】赤字強調の基準を「消費期限までの日数」ではなく「優先度が高」に統一
                 return `
               <div class="ingredient-row" data-ingredient-id="${i.id}">
                 <button type="button" class="ingredient-row__priority ingredient-row__priority--${priority}"
