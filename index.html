@@ -49,10 +49,10 @@
 
   --storage-room: #B08B5A;       /* 常温：温かみのあるベージュ系 */
   --storage-room-pale: #F3E9DA;
-  --storage-fridge: #4E8FB0;     /* 冷蔵：中間の寒色（水色寄り） */
-  --storage-fridge-pale: #E1EEF4;
-  --storage-freezer: #2F5F8A;    /* 冷凍：冷蔵よりはっきり濃い寒色（凍った感じ） */
-  --storage-freezer-pale: #DCE9F5;
+  --storage-fridge: #5C9A6B;     /* 冷蔵：緑系 */
+  --storage-fridge-pale: #E2F0E4;
+  --storage-freezer: #3E6FA8;    /* 冷凍：青系（冷蔵の緑とはっきり区別） */
+  --storage-freezer-pale: #DCE7F5;
 
   /* --- Type --- */
   --font-display: 'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif;
@@ -1056,6 +1056,7 @@ input[type="date"] {
 .u-mt-12 { margin-top: 12px; }
 .u-mt-16 { margin-top: 16px; }
 .u-mt-24 { margin-top: 24px; }
+.u-mb-16 { margin-bottom: 16px; }
 .u-center { align-items: center; justify-content: center; }
 .u-between { justify-content: space-between; }
 .u-muted { color: var(--ink-muted); }
@@ -2094,6 +2095,68 @@ function formatExpiryForList(expiryDate) {
   return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}まで`;
 }
 
+/**
+ * 食材メモ専用の独立したインポート機能（2026-07-16新設、2026-07-16に設定タブから食材メモ画面へ移設）。
+ * 設定タブの「バックアップから復元」（予定・献立・日記等すべてのデータをマージする共通の仕組み）とは
+ * コード・データ形式とも完全に分離している。食材メモの入れ替えだけを目的とした操作で共通の仕組みを使うと
+ * 他のデータにまで影響が及ぶ不安があるという理由（みほさんとの相談）から、
+ * 「食材メモの配列だけを対象に、確認の上で完全に置き換える」という専用の関数を別途用意した。
+ * ボタンは食材メモ画面（このファイル）に置く方が、機能の置き場所として自然という判断で設定タブから移設した。
+ *
+ * 想定する入力形式：
+ * { "ingredients": [ { "name": "...", "storage": "room"|"fridge"|"freezer", "expiryDate": "YYYY-MM-DD"|null, "priority": "high"|"normal"|"low" }, ... ] }
+ * id・createdAtはこの関数側で新規採番するため、ファイル側に含める必要はない（含まれていても無視する）。
+ */
+function importIngredientsReplace(file, onDone) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let dump;
+    try {
+      dump = JSON.parse(reader.result);
+    } catch (e) {
+      window.App.toast('ファイルの読み込みに失敗しました。正しい食材データファイルか確認してください。');
+      return;
+    }
+    const list = Array.isArray(dump) ? dump : dump && Array.isArray(dump.ingredients) ? dump.ingredients : null;
+    if (!list) {
+      window.App.toast('食材データファイルの形式が正しくないようです。');
+      return;
+    }
+    const validPriority = { high: 1, normal: 1, low: 1 };
+    const validStorage = { room: 1, fridge: 1, freezer: 1 };
+    const now = new Date().toISOString();
+    const newItems = list
+      .filter((it) => it && typeof it.name === 'string' && it.name.trim())
+      .map((it) => ({
+        id: IdGenerator.generateId('ingredient'),
+        name: it.name.trim(),
+        storage: validStorage[it.storage] ? it.storage : 'room',
+        expiryDate: it.expiryDate || null,
+        priority: validPriority[it.priority] ? it.priority : 'normal',
+        createdAt: now,
+      }));
+
+    if (newItems.length === 0) {
+      window.App.toast('読み込める食材データがありませんでした。');
+      return;
+    }
+
+    const currentCount = Storage.Collection.all('ingredients').length;
+    const ok = window.confirm(
+      `現在登録されている食材メモ ${currentCount}件をすべて削除し、読み込んだ ${newItems.length}件で完全に置き換えます。この操作は取り消せません。よろしいですか？`
+    );
+    if (!ok) return;
+
+    Storage.Collection.save('ingredients', newItems);
+    window.App.toast(`食材メモを${newItems.length}件で置き換えました`);
+    if (typeof onDone === 'function') onDone();
+  };
+  reader.onerror = () => {
+    window.App.toast('ファイルの読み込みに失敗しました。');
+  };
+  reader.readAsText(file);
+}
+
 /** 食材メモの追加・編集モーダル（画面遷移ではなくモーダルのため、taskEditorとは別に軽量に実装） */
 function openIngredientModal(existing, onSaved) {
   const modalRoot = document.getElementById('modal-root');
@@ -2293,7 +2356,11 @@ function renderIngredients(root, forceResort = true) {
       <h1 class="app-header__title display">食材メモ</h1>
       <p class="app-header__subtitle">献立の相談時にAIが参考にします（優先度は丸をタップで切替）</p>
     </div>
+    <input id="ing-import-file" type="file" accept="application/json,.json" style="display:none;" />
     <div class="screen-body screen-body--fab-spacing">
+      <button id="ing-import" class="btn btn--primary btn--block u-mt-8 u-mb-16">
+        ${Icons.refresh} 在庫データを読み込む
+      </button>
       ${
         orderedItems.length === 0
           ? `<div class="empty-state">
@@ -2333,6 +2400,17 @@ function renderIngredients(root, forceResort = true) {
 
   root.querySelector('#add-ingredient').addEventListener('click', () => {
     openIngredientModal(null, () => renderIngredients(root, false));
+  });
+
+  root.querySelector('#ing-import').addEventListener('click', () => {
+    root.querySelector('#ing-import-file').click();
+  });
+
+  root.querySelector('#ing-import-file').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    importIngredientsReplace(file, () => renderIngredients(root, true));
+    e.target.value = '';
   });
 
   root.querySelectorAll('[data-open-ingredient-id]').forEach((el) => {
@@ -2832,68 +2910,6 @@ function handleImportFile(file) {
   reader.readAsText(file);
 }
 
-/**
- * 食材メモ専用の独立したインポート機能（2026-07-16新設）。
- * 既存のバックアップ復元（importAllData/handleImportFile、上記）とはコード・データ形式とも完全に分離している。
- * バックアップ復元は「予定・献立・日記等すべてのデータをマージする」共通の仕組みのため、
- * 誤操作時の影響範囲が大きい。食材メモの入れ替えだけを目的とした操作でこの共通の仕組みを使うと、
- * 他のデータにまで影響が及ぶ不安があるという理由（みほさんとの相談）から、
- * 「食材メモの配列だけを対象に、確認の上で完全に置き換える」という専用の関数を別途用意した。
- *
- * 想定する入力形式：
- * { "ingredients": [ { "name": "...", "storage": "room"|"fridge"|"freezer", "expiryDate": "YYYY-MM-DD"|null, "priority": "high"|"normal"|"low" }, ... ] }
- * id・createdAtはこの関数側で新規採番するため、ファイル側に含める必要はない（含まれていても無視する）。
- */
-function importIngredientsReplace(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    let dump;
-    try {
-      dump = JSON.parse(reader.result);
-    } catch (e) {
-      window.App.toast('ファイルの読み込みに失敗しました。正しい食材データファイルか確認してください。');
-      return;
-    }
-    const list = Array.isArray(dump) ? dump : dump && Array.isArray(dump.ingredients) ? dump.ingredients : null;
-    if (!list) {
-      window.App.toast('食材データファイルの形式が正しくないようです。');
-      return;
-    }
-    const validPriority = { high: 1, normal: 1, low: 1 };
-    const validStorage = { room: 1, fridge: 1, freezer: 1 };
-    const now = new Date().toISOString();
-    const newItems = list
-      .filter((it) => it && typeof it.name === 'string' && it.name.trim())
-      .map((it) => ({
-        id: IdGenerator.generateId('ingredient'),
-        name: it.name.trim(),
-        storage: validStorage[it.storage] ? it.storage : 'room',
-        expiryDate: it.expiryDate || null,
-        priority: validPriority[it.priority] ? it.priority : 'normal',
-        createdAt: now,
-      }));
-
-    if (newItems.length === 0) {
-      window.App.toast('読み込める食材データがありませんでした。');
-      return;
-    }
-
-    const currentCount = Storage.Collection.all('ingredients').length;
-    const ok = window.confirm(
-      `現在登録されている食材メモ ${currentCount}件をすべて削除し、読み込んだ ${newItems.length}件で完全に置き換えます。この操作は取り消せません。よろしいですか？`
-    );
-    if (!ok) return;
-
-    Storage.Collection.save('ingredients', newItems);
-    window.App.toast(`食材メモを${newItems.length}件で置き換えました`);
-    window.App.start();
-  };
-  reader.onerror = () => {
-    window.App.toast('ファイルの読み込みに失敗しました。');
-  };
-  reader.readAsText(file);
-}
-
 function renderSettings(root) {
   const settings = Storage.Settings.get();
   const hasKey = Storage.Settings.hasApiKey();
@@ -2934,13 +2950,6 @@ function renderSettings(root) {
         <input id="settings-import-file" type="file" accept="application/json,.json" style="display:none;" />
         <p class="hint">復元は「同じ内容のデータは上書き・それ以外は残す」形でマージされます（今のデータが消えることはありません）。</p>
         <button id="settings-delete-all" class="btn btn--danger">すべてのデータを削除</button>
-      </div>
-
-      <div class="card u-flex-col u-gap-12">
-        <div class="field__label">食材メモの一括読み込み（在庫データ）</div>
-        <p class="hint">おうちストックアプリ等から作成した食材データファイルを読み込みます。上記の「バックアップから復元」とは別の仕組みで、<strong>現在の食材メモをすべて削除してから置き換えます</strong>（予定・献立・日記など他のデータには一切影響しません）。</p>
-        <button id="settings-import-ingredients" class="btn btn--outline">食材データを読み込んで置き換える</button>
-        <input id="settings-import-ingredients-file" type="file" accept="application/json,.json" style="display:none;" />
       </div>
 
       <div class="card u-flex-col u-gap-4">
@@ -2986,17 +2995,6 @@ function renderSettings(root) {
     if (!file) return;
     handleImportFile(file);
     e.target.value = ''; // 同じファイルを連続で選び直せるようにリセット
-  });
-
-  root.querySelector('#settings-import-ingredients').addEventListener('click', () => {
-    root.querySelector('#settings-import-ingredients-file').click();
-  });
-
-  root.querySelector('#settings-import-ingredients-file').addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    importIngredientsReplace(file);
-    e.target.value = '';
   });
 
   root.querySelector('#settings-delete-all').addEventListener('click', () => {
